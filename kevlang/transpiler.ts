@@ -19,14 +19,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             i++;
             const parts: string[] = ["import"];
             while (i < tokens.length && tokens[i].type !== "ABSORB" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
-                const tk = tokens[i];
-                if (tk.type === "PUNCT" && (tk.value === "{" || tk.value === "}" || tk.value === ",")) {
-                    parts.push(tk.value);
-                } else if (tk.type === "IDENT" || tk.type === "OPERATOR") {
-                    parts.push(tk.value);
-                } else {
-                    parts.push(tk.value);
-                }
+                parts.push(tokens[i].value);
                 i++;
             }
             if (tokens[i]?.type === "ABSORB") {
@@ -41,53 +34,47 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Mutable Atom: ⚛ name ← expr ---
-        // --- Destructuring: ⚛ { a, b } ← expr ---
-        // --- Destructuring: ⚛ [a, b] ← expr ---
+        // --- Atom (variable declarations) ---
         if (t.type === "ATOM") {
             const next = tokens[i + 1];
             const nextNext = tokens[i + 2];
 
-            // Pattern 1: ⚛ IDENT ← expr  →  let name = expr
+            // Pattern: ⚛ IDENT ← expr  →  let name = expr
             if (next?.type === "IDENT" && nextNext?.type === "MUT_ATOM") {
                 i++;
                 const name = tokens[i].value;
-                i += 2; // skip name and ←
+                i += 2;
                 const expr = readUntilEOL(tokens, i);
                 out.push(`let ${name} = ${expr};`);
                 i = skipPastEOL(tokens, i);
                 continue;
             }
 
-            // Pattern 2: ⚛ { ... } ← expr  →  let { ... } = expr
-            if (next?.value === "{" && nextNext?.type !== undefined) {
-                i++; // skip ⚛
+            // Pattern: ⚛ { ... } ← expr  →  let { ... } = expr
+            if (next?.value === "{") {
+                i++;
                 const block = readBracedBlock(tokens, i);
                 i = block.endIdx;
-                // Expect ← after the block
                 while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
                 if (tokens[i]?.type === "MUT_ATOM") {
-                    i++; // skip ←
+                    i++;
                     const expr = readUntilEOL(tokens, i);
                     out.push(`let {${rewriteInner(block.body)}} = ${expr};`);
                     i = skipPastEOL(tokens, i);
                     continue;
                 }
-                // If no ←, treat as immutable object: const { ... } = expr
-                // This shouldn't happen but handle gracefully
                 out.push(`const {${rewriteInner(block.body)}} = {};`);
                 continue;
             }
 
-            // Pattern 3: ⚛ [ ... ] ← expr  →  let [ ... ] = expr
-            if (next?.value === "[" && nextNext?.type !== undefined) {
-                i++; // skip ⚛
+            // Pattern: ⚛ [ ... ] ← expr  →  let [ ... ] = expr
+            if (next?.value === "[") {
+                i++;
                 const block = readBracketedBlock(tokens, i);
                 i = block.endIdx;
-                // Expect ← after the block
                 while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
                 if (tokens[i]?.type === "MUT_ATOM") {
-                    i++; // skip ←
+                    i++;
                     const expr = readUntilEOL(tokens, i);
                     out.push(`let [${rewriteInner(block.body)}] = ${expr};`);
                     i = skipPastEOL(tokens, i);
@@ -97,11 +84,11 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // Pattern 4: ⚛ IDENT = expr  →  const name = expr (immutable)
+            // Pattern: ⚛ IDENT = expr  →  const name = expr
             if (next?.type === "IDENT" && nextNext?.type === "OPERATOR" && nextNext.value === "=") {
                 i++;
                 const name = tokens[i].value;
-                i += 2; // skip name and =
+                i += 2;
                 const expr = readUntilEOL(tokens, i);
                 out.push(`const ${name} = ${expr};`);
                 i = skipPastEOL(tokens, i);
@@ -109,42 +96,31 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             }
         }
 
-        // --- Immutable Atom: ⚛ name = expr ---
-        if (t.type === "ATOM" && tokens[i + 1]?.type === "IDENT" && tokens[i + 2]?.type === "OPERATOR" && tokens[i + 2].value === "=") {
-            i++;
-            const name = tokens[i].value;
-            i += 2;
-            const expr = readUntilEOL(tokens, i);
-            out.push(`const ${name} = ${expr};`);
-            i = skipPastEOL(tokens, i);
-            continue;
-        }
-
-        // --- Solution (object/variable): ⚗ name { ... } | ⚗ name ← value | ⚗ name = value ---
+        // --- Solution (object/variable) ---
         if (t.type === "SOLUTION") {
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
             if (tokens[i]?.type === "IDENT") i++;
 
-            // Pattern A: ⚗ name ← value  →  let name = value
+            // ⚗ name ← value  →  let name = value
             if (tokens[i]?.type === "MUT_ATOM") {
-                i++; // skip ←
+                i++;
                 const expr = readUntilEOL(tokens, i);
                 out.push(`let ${name} = ${expr};`);
                 i = skipPastEOL(tokens, i);
                 continue;
             }
 
-            // Pattern B: ⚗ name = value  →  const name = value
+            // ⚗ name = value  →  const name = value
             if (tokens[i]?.type === "OPERATOR" && tokens[i].value === "=") {
-                i++; // skip =
+                i++;
                 const expr = readUntilEOL(tokens, i);
                 out.push(`const ${name} = ${expr};`);
                 i = skipPastEOL(tokens, i);
                 continue;
             }
 
-            // Pattern C: ⚗ name { ... }  →  const name = { ... }
+            // ⚗ name { ... }  →  const name = { ... }
             let body = "";
             if (tokens[i]?.value === "{") {
                 const block = readBracedBlock(tokens, i);
@@ -341,37 +317,12 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-// --- Void ---
-        if (t.type === "VOID") {
-            out.push("null");
-            i++;
-            continue;
-        }
-
-        // --- Universal Solvent: H₂O → ctx ---
-        if (t.type === "SOLVENT") {
-            out.push("ctx");
-            i++;
-            continue;
-        }
-
-        // --- export modifier ---
-        if (t.type === "IDENT" && t.value === "export") {
-            out.push("export");
-            i++;
-            continue;
-        }
-
-        // ⬇️ INSERT THIS BLOCK HERE ⬇️
         // --- Safety net: stray ← becomes assignment ---
         if (t.type === "MUT_ATOM") {
-            // If we hit a ← that wasn't part of a recognized pattern,
-            // treat it as an assignment operator
             out.push("=");
             i++;
             continue;
         }
-        // ⬆️ END INSERT ⬆️
 
         // --- Pass-through ---
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
@@ -381,13 +332,9 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
     return out.join("\n");
 }
 
-        // --- Pass-through ---
-        out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
-        i++;
-    }
-
-    return out.join("\n");
-}
+// ============================================================
+// HELPERS
+// ============================================================
 
 function emitToken(t: Token): string {
     if (t.type === "SOLVENT") return "ctx";
