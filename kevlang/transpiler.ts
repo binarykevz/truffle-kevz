@@ -341,6 +341,46 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
+// --- Void ---
+        if (t.type === "VOID") {
+            out.push("null");
+            i++;
+            continue;
+        }
+
+        // --- Universal Solvent: H₂O → ctx ---
+        if (t.type === "SOLVENT") {
+            out.push("ctx");
+            i++;
+            continue;
+        }
+
+        // --- export modifier ---
+        if (t.type === "IDENT" && t.value === "export") {
+            out.push("export");
+            i++;
+            continue;
+        }
+
+        // ⬇️ INSERT THIS BLOCK HERE ⬇️
+        // --- Safety net: stray ← becomes assignment ---
+        if (t.type === "MUT_ATOM") {
+            // If we hit a ← that wasn't part of a recognized pattern,
+            // treat it as an assignment operator
+            out.push("=");
+            i++;
+            continue;
+        }
+        // ⬆️ END INSERT ⬆️
+
+        // --- Pass-through ---
+        out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
+        i++;
+    }
+
+    return out.join("\n");
+}
+
         // --- Pass-through ---
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
         i++;
