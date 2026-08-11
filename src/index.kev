@@ -1,0 +1,308 @@
+# ⚗ Truffle Agent — Main Catalyst
+
+🧲 { Bot, InputFile } ⬅ "grammy"
+🧲 { initMainDB, initCommandsDB, initMemoryDB, seedOwner, getOwner, isOwner, isAllowedUser, addAllowedUser, addAllowedGroup, removeAllowedUser, listAllowedUsers, getConfig, setConfig, deleteConfig, getAllConfig, getCommand, saveCommand, deleteCommand, toggleCommand, listCommands, updateCommandDescription } ⬅ "./db"
+🧲 { executeCommandCode } ⬅ "./commandRunner"
+🧲 { seedDefaultCommands } ⬅ "./seedCommands"
+🧲 { validateAndFixCode, quickSyntaxCheck } ⬅ "./codeValidator"
+🧲 { convertFile } ⬅ "./converter"
+🧲 { userFileCache, getCacheStats, clearAllCaches } ⬅ "./cache"
+🧲 { runAgent } ⬅ "./agent"
+
+⚗ pendingFeatures ← new Map()
+⚗ pendingCookies ← new Set()
+⚗ conversionJobs ← new Map()
+
+⚛ MAX_CACHE_PER_USER = 10
+
+→ cacheUserFile(userId, file) {
+    ⚛ cache ← userFileCache.get(userId) || []
+    cache.unshift(file)
+    ⇌ cache.length > MAX_CACHE_PER_USER {
+        cache = cache.slice(0, MAX_CACHE_PER_USER)
+    }
+    userFileCache.set(userId, cache)
+}
+
+→ findCachedFile(userId, messageId) {
+    ⚛ cache ← userFileCache.get(userId) || []
+    ⟲ cache.find(f => f.messageId === messageId) || ∅
+}
+
+→ escapeMarkdown(text) {
+    ⟲ text.replace(/[_*`\[\]()~>#+\-=|{}.!\\]/g, "\\$&")
+}
+
+→ safeReply(H₂O, text, options) {
+    🛡️ {
+        ⟲ ↯ H₂O.reply(text, { parse_mode: "Markdown", ...(options || {}) })
+    } 🩹 (e) {
+        ⇌ e.message?.includes("can't parse") {
+            ⟲ ↯ H₂O.reply(text, options || {})
+        }
+        🔥 e
+    }
+}
+
+→ main() {
+    ↯ Promise.all([initMainDB(), initCommandsDB(), initMemoryDB()])
+    🔬 "✅ All databases initialized"
+
+    ⚛ ownerId ← ↯ seedOwner()
+    ⇌ ownerId {
+        🔬 "👑 Owner locked: " + ownerId
+        ↯ seedDefaultCommands(ownerId)
+    }
+
+    ⚛ botToken ← ↯ getConfig("bot_token")
+    ⇌ !botToken && process.env.BOT_TOKEN {
+        ↯ setConfig("bot_token", process.env.BOT_TOKEN)
+        botToken = process.env.BOT_TOKEN
+        🔬 "🔑 Bot token seeded from .env"
+    }
+    ⇌ !botToken {
+        🔬 "❌ bot_token not set"
+        process.exit(1)
+    }
+
+    ⚛ bot ← new Bot(botToken)
+
+    # ⚡ Auth middleware
+    bot.use(async (H₂O, next) => {
+        ⇌ !H₂O.from { ⟲ }
+        ⇌ H₂O.callbackQuery { ⟲ ↯ next() }
+        ⚛ allowed ← ↯ isAllowedUser(H₂O.from.id, H₂O.chat?.id)
+        ⇌ !allowed {
+            ⇌ H₂O.message {
+                ⚛ owner ← ↯ getOwner()
+                ↯ safeReply(H₂O, "⛔ Unauthorized\\. Your ID: `" + H₂O.from.id + "`\\nAsk owner to run: `/adduser " + H₂O.from.id + "`")
+            }
+            ⟲
+        }
+        ↯ next()
+    })
+
+    # ⚡ /adduser
+    ⚡ /adduser → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        let targetId = null, targetUsername = undefined;
+        const repliedTo = H₂O.message?.reply_to_message;
+        if (repliedTo?.from) { targetId = repliedTo.from.id; targetUsername = repliedTo.from.username; }
+        else if (H₂O.match?.trim()) { const p = Number(H₂O.match.trim()); if (!isNaN(p) && p > 0) targetId = p; }
+        if (!targetId) return H₂O.reply("Usage: reply with /adduser or /adduser <id>");
+        const added = await addAllowedUser(targetId, targetUsername, H₂O.from.id);
+        return H₂O.reply(added ? `✅ Added ${targetUsername || targetId}` : `ℹ️ Already allowed`);
+    }
+
+    # ⚡ /addgroup
+    ⚡ /addgroup → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const chat = H₂O.chat;
+        if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) return H₂O.reply("⚠️ Use inside a group.");
+        const added = await addAllowedGroup(chat.id, chat.title, chat.username, H₂O.from.id);
+        return H₂O.reply(added ? `✅ Group approved: ${chat.title || chat.id}` : "ℹ️ Already allowed");
+    }
+
+    # ⚡ /listusers
+    ⚡ /listusers → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const { users, groups } = await listAllowedUsers();
+        let msg = '';
+        if (groups.length > 0) { msg += `**Groups (${groups.length}):**\\n`; for (const g of groups) msg += `• \`${g.chat_id}\` ${g.title || ''}\\n`; msg += '\\n'; }
+        if (users.length > 0) { msg += `**Users (${users.length}):**\\n`; for (const u of users) msg += `• \`${u.user_id}\` ${u.username || ''}\\n`; }
+        return safeReply(H₂O, msg || "No users yet.");
+    }
+
+    # ⚡ /setconfig
+    ⚡ /setconfig → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const parts = (H₂O.match || '').split(/\s+/);
+        if (parts.length < 2) return H₂O.reply("Usage: /setconfig <key> <value>");
+        const [key, ...rest] = parts;
+        await setConfig(key, rest.join(' '));
+        return H₂O.reply(`✅ Set \`${key}\``);
+    }
+
+    # ⚡ /status
+    ⚡ /status → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const config = await getAllConfig();
+        const owner = await getOwner();
+        const cmds = await listCommands();
+        return safeReply(H₂O, `**Status**\\n• Owner: \`${owner || 'not set'}\`\\n• Commands: ${cmds.length}\\n• API Key: ${config.api_key ? '✅' : '❌'}\\n• OpenClaw: ${config.openclaw_token ? '✅' : '❌'}`);
+    }
+
+    # ⚡ /cachestats
+    ⚡ /cachestats → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const s = getCacheStats();
+        return safeReply(H₂O, `**Cache**\\n• LLM: ${s.llm.size}/${s.llm.maxSize}\\n• Commands: ${s.commands.size}\\n• Config: ${s.config.size}`);
+    }
+
+    # ⚡ /clearcache
+    ⚡ /clearcache → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        clearAllCaches();
+        return H₂O.reply("🧹 Caches cleared.");
+    }
+
+    # ⚡ /testcookies
+    ⚡ /testcookies → async (H₂O) => {
+        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
+        const { testCookies } = await import('./music.js');
+        await H₂O.reply("🔍 Testing...");
+        const r = await testCookies();
+        return H₂O.reply(r.valid ? `✅ ${r.message}` : `❌ ${r.message}`);
+    }
+
+    # ⚡ /cancel
+    ⚡ /cancel → async (H₂O) => {
+        pendingFeatures.delete(H₂O.from.id);
+        pendingCookies.delete(H₂O.from.id);
+        return H₂O.reply("❌ Cancelled.");
+    }
+
+    # ⚡ /reset
+    ⚡ /reset → async (H₂O) => {
+        const { resetAgent } = await import('./agent.js');
+        await resetAgent(H₂O.from.id);
+        return H₂O.reply("🧹 Memory cleared.");
+    }
+
+    # 📄 Document handler
+    bot.on("message:document", async (H₂O) => {
+        const doc = H₂O.message.document;
+        const ext = doc.file_name?.split('.').pop()?.toLowerCase() || 'bin';
+        const jobId = crypto.randomUUID().slice(0, 8);
+        const fileName = doc.file_name || `file_${jobId}.${ext}`;
+        const filePath = `/tmp/conv_${jobId}.${ext}`;
+        await H₂O.replyWithChatAction("upload_document");
+        const file = await H₂O.api.getFile(doc.file_id);
+        const fileLink = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+        await Bun.write(filePath, await new Response(await fetch(fileLink)).arrayBuffer());
+        conversionJobs.set(jobId, { jobId, filePath, fileName, ext, userId: H₂O.from.id });
+        cacheUserFile(H₂O.from.id, { messageId: H₂O.message.message_id, filePath, fileName, ext, userId: H₂O.from.id, timestamp: Date.now() });
+        const userMessage = `[SYSTEM: File attached. Job: ${jobId}, Name: ${fileName}, Format: ${ext}]`;
+        try {
+            const response = await runAgent(H₂O, userMessage, { jobId, filePath, fileName, ext });
+            const chunks = response.match(/.{1,4000}/gs) || [''];
+            for (const chunk of chunks) await H₂O.reply(chunk);
+        } catch (e) { await H₂O.reply(`❌ ${e.message}`); }
+    })
+
+    # 📷 Photo handler
+    bot.on("message:photo", async (H₂O) => {
+        const photo = H₂O.message.photo[H₂O.message.photo.length - 1];
+        const jobId = crypto.randomUUID().slice(0, 8);
+        const fileName = `image_${jobId}.jpg`;
+        const filePath = `/tmp/conv_${jobId}.jpg`;
+        await H₂O.replyWithChatAction("upload_photo");
+        const file = await H₂O.api.getFile(photo.file_id);
+        const fileLink = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+        await Bun.write(filePath, await new Response(await fetch(fileLink)).arrayBuffer());
+        conversionJobs.set(jobId, { jobId, filePath, fileName, ext: 'jpg', userId: H₂O.from.id });
+        cacheUserFile(H₂O.from.id, { messageId: H₂O.message.message_id, filePath, fileName, ext: 'jpg', userId: H₂O.from.id, timestamp: Date.now() });
+        const userMessage = `[SYSTEM: Image attached. Job: ${jobId}]`;
+        try {
+            const response = await runAgent(H₂O, userMessage, { jobId, filePath, fileName, ext: 'jpg' });
+            const chunks = response.match(/.{1,4000}/gs) || [''];
+            for (const chunk of chunks) await H₂O.reply(chunk);
+        } catch (e) { await H₂O.reply(`❌ ${e.message}`); }
+    })
+
+    # 💬 Text handler
+    bot.on("message:text", async (H₂O) => {
+        const text = H₂O.message.text;
+        const userId = H₂O.from.id;
+        const repliedTo = H₂O.message.reply_to_message;
+
+        if (repliedTo && (repliedTo.document || repliedTo.photo)) {
+            const cached = findCachedFile(userId, repliedTo.message_id);
+            if (cached && /convert|change|to |into |make/i.test(text.toLowerCase())) {
+                const jobId = crypto.randomUUID().slice(0, 8);
+                conversionJobs.set(jobId, { jobId, filePath: cached.filePath, fileName: cached.fileName, ext: cached.ext, userId });
+                const msg = `[SYSTEM: Reply-to-file. Job: ${jobId}, File: ${cached.fileName}, Format: ${cached.ext}. Said: "${text}"]`;
+                try {
+                    const response = await runAgent(H₂O, msg, { jobId, filePath: cached.filePath, fileName: cached.fileName, ext: cached.ext });
+                    for (const chunk of (response.match(/.{1,4000}/gs) || [''])) await H₂O.reply(chunk);
+                } catch (e) { await H₂O.reply(`❌ ${e.message}`); }
+                return;
+            }
+        }
+
+        const pending = pendingFeatures.get(userId);
+        if (pending) {
+            if (pending.step === 'code') {
+                const check = quickSyntaxCheck(text);
+                let finalCode = text;
+                if (!check.valid) {
+                    const r = await validateAndFixCode(text, pending.name);
+                    if (r.valid) finalCode = r.code;
+                    else return H₂O.reply(`❌ ${r.errors.join(', ')}`);
+                }
+                pending.code = finalCode;
+                pending.step = 'description';
+                pendingFeatures.set(userId, pending);
+                return H₂O.reply("✅ Code OK. Send description (or `skip`):");
+            }
+            if (pending.step === 'description') {
+                const desc = text.trim().toLowerCase() === 'skip' ? '' : text.trim();
+                await saveCommand(pending.name, pending.code, desc, pending.ownerOnly, userId);
+                pendingFeatures.delete(userId);
+                return H₂O.reply(`✅ /${pending.name} saved!`);
+            }
+        }
+
+        if (text.startsWith('/')) {
+            const cmdName = text.split(/\s+/)[0].replace(/^\//, '').split('@')[0];
+            const cmd = await getCommand(cmdName);
+            if (cmd) {
+                if (cmd.owner_only && !(await isOwner(userId))) return H₂O.reply("⛔ Owner only.");
+                if (!cmd.enabled) return H₂O.reply(`⏸️ /${cmdName} disabled.`);
+                try { await executeCommandCode(cmd.code, H₂O); }
+                catch (e) {
+                    await H₂O.reply(`❌ /${cmdName}: ${e.message}`);
+                    const owner = await getOwner();
+                    if (owner && userId !== owner) try { await bot.api.sendMessage(owner, `⚠️ /${cmdName} crashed: ${e.message}`); } catch {}
+                }
+                return;
+            }
+        }
+
+        try {
+            const response = await runAgent(H₂O, text);
+            for (const chunk of (response.match(/.{1,4000}/gs) || [''])) await H₂O.reply(chunk);
+        } catch (e) { await H₂O.reply(`❌ ${e.message}`); }
+    })
+
+    # 🔘 Callback query handler
+    bot.on("callback_query:data", async (H₂O) => {
+        const data = H₂O.callbackQuery.data;
+        if (data.startsWith('conv_')) {
+            await H₂O.answerCallbackQuery();
+            const parts = data.split('_');
+            if (parts.length >= 3) {
+                const jobId = parts[1];
+                const targetExt = parts.slice(2).join('_');
+                const job = conversionJobs.get(jobId);
+                if (!job) return H₂O.editMessageText("❌ Expired.");
+                await H₂O.editMessageText("⏳ Converting...");
+                try {
+                    const resultPath = await convertFile(job.filePath, job.ext, targetExt);
+                    const outName = job.fileName.replace(new RegExp(`${job.ext}$`, 'i'), targetExt);
+                    await H₂O.replyWithDocument({ source: resultPath, filename: outName });
+                    await H₂O.editMessageText(`✅ Converted to ${targetExt.toUpperCase()}`);
+                    conversionJobs.delete(jobId);
+                    await Bun.file(job.filePath).delete();
+                    await Bun.file(resultPath).delete();
+                } catch (e) { await H₂O.editMessageText(`❌ ${e.message}`); }
+            }
+        }
+    })
+
+    🔬 "🤖 Bot starting..."
+    ↯ bot.start()
+    🔬 "✅ Online as @" + bot.botInfo?.username
+}
+
+main()
