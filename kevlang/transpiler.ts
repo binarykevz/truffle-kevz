@@ -422,7 +422,7 @@ function readUntilEOL(tokens: Token[], start: number): string {
     let out = "";
     let i = start;
     while (i < tokens.length && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
-        out += emitToken(tokens[i]) + " ";
+        out += emitToken(tokens[i]) + (needsSpace(tokens[i], tokens[i + 1]) ? " " : "");
         i++;
     }
     return out.trim();
