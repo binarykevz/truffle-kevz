@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "synthesize": "bun run kevlang/compiler.ts",
-    "start": "bun run kevlang/compiler.ts && bun run src/generated/index.ts",
-    "dev": "bun run kevlang/compiler.ts && bun run --watch src/generated/index.ts",
+    "start": "bun run kevlang/compiler.ts && bun run src/index.kev",
+    "dev": "bun run kevlang/compiler.ts && bun run --watch src/index.kev",
     "clean": "rm -rf src/generated"
   },
   "dependencies": {
