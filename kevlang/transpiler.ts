@@ -147,23 +147,38 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         }
 
         // --- Reaction (async function): → name(params) { body } ---
-        if (t.type === "REACTION" && tokens[i + 1]?.type === "IDENT") {
-            i++;
-            const name = tokens[i].value;
-            i++;
-            let params = "";
-            if (tokens[i]?.value === "(") {
-                const block = readParenBlock(tokens, i);
-                params = rewriteInner(block.body);
-                i = block.endIdx;
+        if (t.type === "REACTION") {
+            const next = tokens[i + 1];
+            
+            // Debug logging
+            console.error(`[DEBUG] REACTION token at position ${i}, next token type: ${next?.type}, value: ${next?.value}`);
+            
+            // Pattern: → name(params) { body }
+            if (next?.type === "IDENT") {
+                i++;
+                const name = tokens[i].value;
+                i++;
+                let params = "";
+                if (tokens[i]?.value === "(") {
+                    const block = readParenBlock(tokens, i);
+                    params = rewriteInner(block.body);
+                    i = block.endIdx;
+                }
+                let body = "";
+                if (tokens[i]?.value === "{") {
+                    const block = readBracedBlock(tokens, i);
+                    body = block.body;
+                    i = block.endIdx;
+                }
+                console.error(`[DEBUG] Emitting: async function ${name}(${params})`);
+                out.push(`async function ${name}(${params}) {${rewriteInner(body)}}`);
+                continue;
             }
-            let body = "";
-            if (tokens[i]?.value === "{") {
-                const block = readBracedBlock(tokens, i);
-                body = block.body;
-                i = block.endIdx;
-            }
-            out.push(`async function ${name}(${params}) {${rewriteInner(body)}}`);
+            
+            // Fallback: stray → becomes =>
+            console.error(`[DEBUG] REACTION fallback: emitting =>`);
+            out.push("=>");
+            i++;
             continue;
         }
 
