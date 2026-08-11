@@ -146,21 +146,22 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Reaction: → ---
+        
+          // --- Reaction: → ---
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
             
-            // Skip → followed by NEWLINE (line continuation, not a real arrow)
+            // Skip → followed by NEWLINE or EOF (line continuation)
             if (!next || next.type === "NEWLINE" || next.type === "EOF") {
                 i++;
                 continue;
             }
             
-            // Pattern: → name(params) { body }  →  async function name(params) { body }
+            // Pattern: → name(params) { body }  →  async function
             if (next?.type === "IDENT") {
-                i++; // skip →
+                i++;
                 const name = tokens[i].value;
-                i++; // skip name
+                i++;
                 
                 let params = "";
                 if (tokens[i]?.value === "(") {
@@ -180,18 +181,12 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
             
-            // Pattern: → (params) => { body }  →  arrow function
-            if (next?.value === "(") {
-                out.push("=>");
-                i++;
-                continue;
-            }
-            
-            // Fallback: emit => for any other case
-            out.push("=>");
+            // For any other case, just skip the → entirely
+            // (it's likely part of a construct handled elsewhere)
             i++;
             continue;
-        }
+        }  
+            
 
         // --- Cycling (while): ⇌⥀ condition { body } ---
         if (t.type === "CYCLING") {
