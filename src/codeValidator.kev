@@ -1,0 +1,92 @@
+# 🔬 Code Validator — AI auto-fix for features
+
+🧲 { getConfig } ⬅ "./db"
+
+→ tryTranspile(code) {
+    🛡️ {
+        ⚛ transpiler ← new Bun.Transpiler({ loader: "ts" })
+        transpiler.transformSync(code)
+        ⟲ { success: true }
+    } 🩹 (e) {
+        ⟲ { success: false, error: e.message }
+    }
+}
+
+→ tryParseAsFunction(code) {
+    🛡️ {
+        ⚛ wrapped ← "(async function test() { " + code + " })"
+        new Function(wrapped)
+        ⟲ { success: true }
+    } 🩹 (e) {
+        ⟲ { success: false, error: e.message }
+    }
+}
+
+→ askLLMToFixCode(code, error, commandName) {
+    🛡️ {
+        ⚛ apiKey ← ↯ getConfig("api_key")
+        ⚛ baseUrl ← ↯ getConfig("base_url")
+        ⚛ model ← (↯ getConfig("model")) || "qwen-max"
+        ⇌ !apiKey || !baseUrl { ⟲ ∅ }
+
+        ⚛ systemPrompt ← "Fix Telegram bot command code. Return ONLY fixed code, no explanations."
+        ⚛ res ← ↯ fetch(baseUrl.replace(/\/$/, "") + "/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: "Fix:\n" + code + "\n\nError:\n" + error }
+                ],
+                temperature: 0.1
+            })
+        })
+        ⇌ !res.ok { ⟲ ∅ }
+        ⚛ data ← ↯ res.json()
+        ⚛ fixed ← data.choices?.[0]?.message?.content?.trim()
+        ⇌ !fixed { ⟲ ∅ }
+        fixed = fixed.replace(/^```(?:typescript|js)?\n?/i, "").replace(/\n?```$/i, "").trim()
+        ⟲ fixed
+    } 🩹 (e) {
+        ⟲ ∅
+    }
+}
+
+export → validateAndFixCode(code, commandName, onProgress) {
+    🧬 errors []
+    ⚛ currentCode ← code
+    ⚛ wasFixed ← false
+    ⚛ MAX_ATTEMPTS = 2
+    ⚛ attempt ← 0
+    ⇌⥀ attempt <= MAX_ATTEMPTS {
+        ⚛ transpileResult ← tryTranspile(currentCode)
+        ⇌ transpileResult.success {
+            ⚛ parseResult ← tryParseAsFunction(currentCode)
+            ⇌ parseResult.success {
+                ⟲ { valid: true, code: currentCode, errors: errors, wasFixed: wasFixed, fixAttempts: attempt }
+            }
+            errors.push("Parse error: " + parseResult.error)
+        }
+        ⇌ !transpileResult.success {
+            errors.push("Transpile error: " + transpileResult.error)
+        }
+        ⇌ attempt >= MAX_ATTEMPTS { break }
+        ⇌ onProgress { ↯ onProgress("🔧 Fixing attempt " + (attempt + 1)) }
+        ⚛ fixedCode ← ↯ askLLMToFixCode(currentCode, errors[errors.length - 1], commandName)
+        ⇌ !fixedCode {
+            errors.push("LLM failed")
+            break
+        }
+        currentCode = fixedCode
+        wasFixed = true
+        attempt = attempt + 1
+    }
+    ⟲ { valid: false, code: currentCode, errors: errors, wasFixed: wasFixed, fixAttempts: errors.length }
+}
+
+export → quickSyntaxCheck(code) {
+    ⚛ transpile ← tryTranspile(code)
+    ⇌ !transpile.success { ⟲ transpile }
+    ⟲ tryParseAsFunction(code)
+}
