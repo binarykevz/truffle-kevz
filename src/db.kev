@@ -1,0 +1,223 @@
+# 💊 Turso Database Compounds
+
+🧲 { createClient } ⬅ "@libsql/client"
+🧲 { configCache, commandCache } ⬅ "./cache"
+
+⚛ mainUrl ← process.env.TURSO_DATABASE_URL
+⚛ commandsUrl ← process.env.TURSO_COMMANDS_DATABASE_URL
+⚛ memoryUrl ← process.env.TURSO_MEMORY_URL
+
+⇌ !mainUrl { 🔥 new Error("TURSO_DATABASE_URL required") }
+⇌ !commandsUrl { 🔥 new Error("TURSO_COMMANDS_DATABASE_URL required") }
+
+export ⚛ mainDb ← createClient({ url: mainUrl, authToken: process.env.TURSO_AUTH_TOKEN })
+export ⚛ commandsDb ← createClient({ url: commandsUrl, authToken: process.env.TURSO_COMMANDS_AUTH_TOKEN })
+export ⚛ memoryDb ← memoryUrl ? createClient({ url: memoryUrl, authToken: process.env.TURSO_MEMORY_TOKEN }) : mainDb
+
+export → initMainDB() {
+    ↯ mainDb.batch([
+        "CREATE TABLE IF NOT EXISTS allowed_users (user_id INTEGER PRIMARY KEY, type TEXT DEFAULT 'user', username TEXT, title TEXT, added_by INTEGER, added_at INTEGER)",
+        "CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY CHECK (id = 1), user_id INTEGER, updated_at INTEGER)",
+        "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)",
+        "CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, role TEXT, content TEXT, tool_calls TEXT, tool_call_id TEXT, name TEXT, timestamp INTEGER)"
+    ], "write")
+}
+
+export → initCommandsDB() {
+    ↯ commandsDb.batch([
+        "CREATE TABLE IF NOT EXISTS commands (name TEXT PRIMARY KEY, description TEXT DEFAULT '', code TEXT, owner_only INTEGER DEFAULT 0, enabled INTEGER DEFAULT 1, created_by INTEGER, created_at INTEGER, updated_at INTEGER)"
+    ], "write")
+}
+
+export → initMemoryDB() {
+    ⇌ memoryUrl && memoryUrl !== mainUrl {
+        ↯ memoryDb.batch([
+            "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)",
+            "CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, role TEXT, content TEXT, tool_calls TEXT, tool_call_id TEXT, name TEXT, timestamp INTEGER)"
+        ], "write")
+    }
+}
+
+export → getConfig(key) {
+    ⚛ cached ← configCache.get(key)
+    ⇌ cached !== ∅ { ⟲ cached }
+    ⚛ row ← ↯ mainDb.execute({ sql: "SELECT value FROM config WHERE key = ?", args: [key] })
+    ⚛ value ← row.rows[0]?.value || ∅
+    ⇌ value !== ∅ { configCache.set(key, value) }
+    ⟲ value
+}
+
+export → setConfig(key, value) {
+    ↯ mainDb.execute({
+        sql: "INSERT INTO config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        args: [key, value, Date.now()]
+    })
+    configCache.set(key, value)
+}
+
+export → deleteConfig(key) {
+    ↯ mainDb.execute({ sql: "DELETE FROM config WHERE key = ?", args: [key] })
+    configCache.delete(key)
+}
+
+export → getAllConfig() {
+    ⚛ rows ← ↯ mainDb.execute({ sql: "SELECT key, value FROM config", args: [] })
+    ⚗ out { }
+    ⇌⥀ rows.rows.length > 0 {
+        ⚛ r ← rows.rows.shift()
+        out[r.key] = r.value
+    }
+    ⟲ out
+}
+
+export → seedOwner() {
+    ⚛ envOwner ← process.env.OWNER_ID
+    ⇌ !envOwner { ⟲ ∅ }
+    ⚛ ownerId ← Number(envOwner)
+    ↯ mainDb.execute({
+        sql: "INSERT INTO owner (id, user_id, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id",
+        args: [ownerId, Date.now()]
+    })
+    ↯ addAllowedUser(ownerId, ∅, ownerId)
+    ⟲ ownerId
+}
+
+export → getOwner() {
+    ⚛ row ← ↯ mainDb.execute({ sql: "SELECT user_id FROM owner WHERE id = 1", args: [] })
+    ⟲ row.rows.length > 0 ? row.rows[0].user_id : ∅
+}
+
+export → isOwner(userId) {
+    ⟲ (↯ getOwner()) === userId
+}
+
+export → addAllowedUser(userId, username, addedBy) {
+    🛡️ {
+        ↯ mainDb.execute({
+            sql: "INSERT INTO allowed_users (user_id, type, username, added_by, added_at) VALUES (?, 'user', ?, ?, ?)",
+            args: [userId, username, addedBy, Date.now()]
+        })
+        ⟲ true
+    } 🩹 (e) {
+        ⟲ false
+    }
+}
+
+export → addAllowedGroup(groupId, title, username, addedBy) {
+    🛡️ {
+        ↯ mainDb.execute({
+            sql: "INSERT INTO allowed_users (user_id, type, username, title, added_by, added_at) VALUES (?, 'group', ?, ?, ?, ?)",
+            args: [groupId, username, title, addedBy, Date.now()]
+        })
+        ⟲ true
+    } 🩹 (e) {
+        ⟲ false
+    }
+}
+
+export → removeAllowedUser(userId) {
+    ⚛ res ← ↯ mainDb.execute({ sql: "DELETE FROM allowed_users WHERE user_id = ?", args: [userId] })
+    ⟲ (res.rowsAffected || 0) > 0
+}
+
+export → isAllowedUser(userId, chatId) {
+    ⇌ ↯ isOwner(userId) { ⟲ true }
+    ⚛ userRow ← ↯ mainDb.execute({ sql: "SELECT 1 FROM allowed_users WHERE user_id = ? AND type = 'user'", args: [userId] })
+    ⇌ userRow.rows.length > 0 { ⟲ true }
+    ⇌ chatId && chatId < 0 {
+        ⚛ groupRow ← ↯ mainDb.execute({ sql: "SELECT 1 FROM allowed_users WHERE user_id = ? AND type = 'group'", args: [chatId] })
+        ⇌ groupRow.rows.length > 0 { ⟲ true }
+    }
+    ⟲ false
+}
+
+export → listAllowedUsers() {
+    ⚛ rows ← ↯ mainDb.execute({ sql: "SELECT user_id, type, username, title, added_at FROM allowed_users ORDER BY added_at ASC", args: [] })
+    🧬 users []
+    🧬 groups []
+    ⇌⥀ rows.rows.length > 0 {
+        ⚛ r ← rows.rows.shift()
+        ⇌ r.type === "group" {
+            groups.push({ chat_id: r.user_id, title: r.title, username: r.username, added_at: r.added_at })
+        }
+        ⇌ r.type !== "group" {
+            users.push({ user_id: r.user_id, username: r.username, added_at: r.added_at })
+        }
+    }
+    ⟲ { users: users, groups: groups }
+}
+
+export → getHistory(userId) {
+    ⚛ rows ← ↯ mainDb.execute({ sql: "SELECT * FROM history WHERE user_id = ? ORDER BY timestamp ASC", args: [userId] })
+    ⟲ rows.rows.map(r => ({
+        role: r.role,
+        content: r.content,
+        tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : ∅,
+        tool_call_id: r.tool_call_id,
+        name: r.name
+    }))
+}
+
+export → saveMessage(userId, msg) {
+    ↯ mainDb.execute({
+        sql: "INSERT INTO history (user_id, role, content, tool_calls, tool_call_id, name, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        args: [userId, msg.role, msg.content, msg.tool_calls ? JSON.stringify(msg.tool_calls) : ∅, msg.tool_call_id, msg.name, Date.now()]
+    })
+}
+
+export → clearHistory(userId) {
+    ↯ mainDb.execute({ sql: "DELETE FROM history WHERE user_id = ?", args: [userId] })
+}
+
+export → getCommand(name) {
+    ⚛ normalized ← name.replace(/^\//, "")
+    ⚛ cached ← commandCache.get(normalized)
+    ⇌ cached !== ∅ { ⟲ cached }
+    ⚛ row ← ↯ commandsDb.execute({ sql: "SELECT * FROM commands WHERE name = ?", args: [normalized] })
+    ⇌ row.rows.length === 0 {
+        commandCache.set(normalized, ∅)
+        ⟲ ∅
+    }
+    ⚛ cmd ← row.rows[0]
+    commandCache.set(normalized, cmd)
+    ⟲ cmd
+}
+
+export → saveCommand(name, code, description, ownerOnly, createdBy) {
+    ⚛ normalized ← name.replace(/^\//, "")
+    ⚛ now ← Date.now()
+    ↯ commandsDb.execute({
+        sql: "INSERT INTO commands (name, description, code, owner_only, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET code = excluded.code, description = excluded.description, owner_only = excluded.owner_only, updated_at = excluded.updated_at",
+        args: [normalized, description, code, ownerOnly ? 1 : 0, createdBy, now, now]
+    })
+    commandCache.delete(normalized)
+}
+
+export → deleteCommand(name) {
+    ⚛ normalized ← name.replace(/^\//, "")
+    ⚛ res ← ↯ commandsDb.execute({ sql: "DELETE FROM commands WHERE name = ?", args: [normalized] })
+    commandCache.delete(normalized)
+    ⟲ (res.rowsAffected || 0) > 0
+}
+
+export → listCommands() {
+    ⚛ rows ← ↯ commandsDb.execute({ sql: "SELECT * FROM commands ORDER BY name ASC", args: [] })
+    ⟲ rows.rows
+}
+
+export → updateCommandDescription(name, description) {
+    ⚛ normalized ← name.replace(/^\//, "")
+    ⚛ res ← ↯ commandsDb.execute({ sql: "UPDATE commands SET description = ?, updated_at = ? WHERE name = ?", args: [description, Date.now(), normalized] })
+    commandCache.delete(normalized)
+    ⟲ (res.rowsAffected || 0) > 0
+}
+
+export → toggleCommand(name) {
+    ⚛ normalized ← name.replace(/^\//, "")
+    ⚛ cmd ← ↯ getCommand(normalized)
+    ⇌ !cmd { ⟲ { enabled: false, found: false } }
+    ⚛ newEnabled ← cmd.enabled === 1 ? 0 : 1
+    ↯ commandsDb.execute({ sql: "UPDATE commands SET enabled = ?, updated_at = ? WHERE name = ?", args: [newEnabled, Date.now(), normalized] })
+    commandCache.delete(normalized)
+    ⟲ { enabled: newEnabled === 1, found: true }
+}
