@@ -1,0 +1,64 @@
+# 🧠 ReAct Agent Reactor
+
+🧲 { callLLM } ⬅ "./llm"
+🧲 { tools } ⬅ "./tools"
+🧲 { getHistory, saveMessage, clearHistory } ⬅ "./db"
+🧲 { getConversionOptions } ⬅ "./converter"
+
+⚛ SYSTEM_PROMPT = "You are an autonomous agentic assistant. Use tools when needed. Be concise."
+
+export → runAgent(H₂O, userMessage, jobInfo) {
+    ⚛ userId ← H₂O.from.id
+    ⚛ history ← ↯ getHistory(userId)
+    ⚛ systemPrompt ← SYSTEM_PROMPT
+    ⇌ jobInfo {
+        ⚛ options ← getConversionOptions(jobInfo.ext)
+        systemPrompt = systemPrompt + "\n\nUser attached file: " + jobInfo.fileName + " (" + jobInfo.ext + "). Options: " + options.join(", ") + ". Use show_conversion_menu."
+    }
+    ⇌ history.length === 0 { history.push({ role: "system", content: systemPrompt }) }
+    history.push({ role: "user", content: userMessage })
+    ↯ saveMessage(userId, { role: "user", content: userMessage })
+
+    ⚛ toolDefs ← tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters }))
+
+    ⚛ step ← 0
+    ⇌⥀ step < 5 {
+        step = step + 1
+        ↯ H₂O.replyWithChatAction("typing")
+        ⚛ reply ← ↯ callLLM(history, toolDefs)
+        history.push(reply)
+        ↯ saveMessage(userId, reply)
+
+        ⇌ !reply.tool_calls || reply.tool_calls.length === 0 {
+            ⟲ reply.content || "I'm not sure."
+        }
+
+        ⇌⥀ reply.tool_calls.length > 0 {
+            ⚛ toolCall ← reply.tool_calls.shift()
+            ⚛ toolName ← toolCall.function.name
+            ⚛ toolArgs ← JSON.parse(toolCall.function.arguments || "{}")
+            ⚛ tool ← tools.find(t => t.name === toolName)
+            ⚛ result ← "Tool not found"
+            ⇌ tool {
+                🛡️ {
+                    result = ↯ tool.execute(toolArgs, H₂O)
+                } 🩹 (e) {
+                    result = "Error: " + e.message
+                }
+            }
+            ⚗ toolMsg {
+                role: "tool",
+                content: typeof result === "string" ? result : JSON.stringify(result),
+                tool_call_id: toolCall.id,
+                name: toolName
+            }
+            history.push(toolMsg)
+            ↯ saveMessage(userId, toolMsg)
+        }
+    }
+    ⟲ "⚠️ Max steps reached"
+}
+
+export → resetAgent(userId) {
+    ↯ clearHistory(userId)
+}
