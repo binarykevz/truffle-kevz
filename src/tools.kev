@@ -1,0 +1,108 @@
+# 🧪 Agent Catalysts — Tools the ReAct agent can invoke
+
+🧲 { Context, InputFile } ⬅ "grammy"
+🧲 * ⬅ "cheerio"
+🧲 { writeFile, mkdir } ⬅ "fs/promises"
+🧲 { join } ⬅ "path"
+🧲 { getConfig } ⬅ "./db"
+🧲 { searchAndPlay } ⬅ "./music"
+🧲 { isTermux, launchOnTermux, listInstalledApps, getKnownApps, APP_REGISTRY } ⬅ "./device"
+🧲 { getConversionOptions } ⬅ "./converter"
+
+⚛ WORKSPACE = "/tmp/bot_workspace"
+
+export 🧬 tools [
+    {
+        name: "web_crawl",
+        description: "Crawl a URL and extract text.",
+        parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+        execute: async ({ url }) => {
+            ⚛ res ← ↯ fetch(url, { headers: { "User-Agent": "AgenticBot/1.0" } })
+            ⚛ html ← ↯ res.text()
+            ⚛ $ ← cheerio.load(html)
+            $("script, style, nav, footer").remove()
+            ⟲ $("body").text().replace(/\s+/g, " ").trim().slice(0, 4000)
+        }
+    },
+    {
+        name: "openclaw_action",
+        description: "Send message to OpenClaw.",
+        parameters: { type: "object", properties: { message: { type: "string" }, session: { type: "string", default: "agent:main:main" } }, required: ["message"] },
+        execute: async ({ message, session }, H₂O) => {
+            ⚛ url ← (↯ getConfig("openclaw_url")) || "http://127.0.0.1:18789/hooks/agent"
+            ⚛ token ← ↯ getConfig("openclaw_token")
+            ⇌ !token { ⟲ "❌ OpenClaw token not configured" }
+            🛡️ {
+                ⚛ res ← ↯ fetch(url, {
+                    method: "POST",
+                    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: message, session: session || "agent:main:main", name: "telegram", user: String(H₂O.from?.id || "unknown") })
+                })
+                ⇌ !res.ok { ⟲ "❌ HTTP " + res.status }
+                ⚛ data ← ↯ res.json()
+                ⟲ typeof data === "string" ? data : JSON.stringify(data).slice(0, 4000)
+            } 🩹 (e) {
+                ⟲ "❌ " + e.message
+            }
+        }
+    },
+    {
+        name: "open_app",
+        description: "Open an app.",
+        parameters: { type: "object", properties: { app: { type: "string" }, extra: { type: "string" } }, required: ["app"] },
+        execute: async ({ app, extra }, H₂O) => {
+            ⇌ isTermux() { ⟲ ↯ launchOnTermux(app, extra || "") }
+            ⚛ key ← app.toLowerCase()
+            ⚛ known ← APP_REGISTRY[key]
+            ⚛ url ← known ? known.web + (extra || "") : (extra || "")
+            ⇌ !url { ⟲ "❌ Cannot open " + app }
+            ↯ H₂O.reply("🚀 Tap to open " + app + ":", { reply_markup: { inline_keyboard: [[{ text: "Open " + app, url: url }]] } })
+            ⟲ "Sent button"
+        }
+    },
+    {
+        name: "play_music",
+        description: "Search and play music.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        execute: async ({ query }, H₂O) => {
+            ↯ H₂O.replyWithChatAction("upload_voice")
+            ⚛ result ← ↯ searchAndPlay(query, H₂O.from.id)
+            ⇌ !result { ⟲ "❌ No songs found." }
+            ⇌ !result.audioPath { ⟲ "❌ Download failed for " + result.title }
+            🛡️ {
+                ⚛ bunFile ← Bun.file(result.audioPath)
+                ⚛ buffer ← ↯ bunFile.arrayBuffer()
+                ⚛ header ← new TextDecoder().decode(buffer.slice(0, 100))
+                ⇌ header.trim().startsWith("<") || header.trim().startsWith("{") {
+                    ⟲ "❌ API returned error, not audio"
+                }
+                ⚛ safeName ← result.title.replace(/[^\w\s.-]/gi, "").slice(0, 60) + ".mp3"
+                ⚛ inputFile ← new InputFile(new Uint8Array(buffer), safeName)
+                ⚛ caption ← "🎵 " + result.title + "\n👤 " + result.artist + "\n⏱ " + result.duration + (result.description ? "\n" + result.description.slice(0, 200) : "")
+                🛡️ {
+                    ↯ H₂O.replyWithAudio(inputFile, {
+                        caption: caption,
+                        title: result.title,
+                        performer: result.artist,
+                        duration: result.durationSec,
+                        thumbnail: { url: result.thumbnail }
+                    })
+                    🔬 "[Music] ✅ Sent: " + result.title
+                } 🩹 (thumbErr) {
+                    ↯ H₂O.replyWithAudio(inputFile, { caption: caption, title: result.title, performer: result.artist, duration: result.durationSec })
+                }
+            } 🩹 (e) {
+                🔬 "[Music] Upload failed: " + e.message
+                ⟲ "❌ Upload failed: " + e.message.slice(0, 100)
+            }
+            🛡️ { ↯ Bun.file(result.audioPath).delete() } 🩹 (e) { }
+            ⟲ "🎵 Played: " + result.title
+        }
+    },
+    {
+        name: "get_conversion_options",
+        description: "Get target formats for a file extension.",
+        parameters: { type: "object", properties: { file_extension: { type: "string" } }, required: ["file_extension"] },
+        execute: async ({ file_extension }) => getConversionOptions(file_extension)
+    }
+]
