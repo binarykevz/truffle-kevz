@@ -146,38 +146,45 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Reaction (async function): → name(params) { body } ---
+        // --- Reaction: → ---
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
-            const prev = tokens[i - 1];
             
-            // Log EVERY REACTION token
-            console.error(`[DEBUG REACTION] pos=${i}, prev="${prev?.value}" (type=${prev?.type}), next="${next?.value}" (type=${next?.type})`);
-            
-            // Pattern: → name(params) { body }
+            // If next is an identifier, it's a function declaration
             if (next?.type === "IDENT") {
-                i++;
+                i++; // skip →
                 const name = tokens[i].value;
-                i++;
+                i++; // skip name
+                
+                // Read parameters
                 let params = "";
                 if (tokens[i]?.value === "(") {
                     const block = readParenBlock(tokens, i);
                     params = rewriteInner(block.body);
                     i = block.endIdx;
                 }
+                
+                // Read body
                 let body = "";
                 if (tokens[i]?.value === "{") {
                     const block = readBracedBlock(tokens, i);
                     body = block.body;
                     i = block.endIdx;
                 }
-                console.error(`[DEBUG] ✓ Emitting: async function ${name}`);
+                
                 out.push(`async function ${name}(${params}) {${rewriteInner(body)}}`);
                 continue;
             }
             
-            // Fallback: stray → becomes =>
-            console.error(`[DEBUG] ⚠️ REACTION fallback at pos ${i}: emitting =>`);
+            // Otherwise it's an arrow function or assignment
+            // Look back to see if there's a parameter list
+            if (tokens[i - 1]?.value === ")") {
+                out.push("=>");
+                i++;
+                continue;
+            }
+            
+            // Default: treat as arrow
             out.push("=>");
             i++;
             continue;
