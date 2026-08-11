@@ -1,0 +1,35 @@
+# 🌱 Default Command Seeds
+
+🧲 * ⬅ "./db"
+
+export → seedDefaultCommands(ownerId) {
+    🧬 defaults [
+        {
+            name: "start",
+            description: "Welcome message",
+            ownerOnly: false,
+            code: "await ctx.reply(`👋 Welcome, ${ctx.from.first_name}! Use /help.`);"
+        },
+        {
+            name: "help",
+            description: "Show commands",
+            ownerOnly: false,
+            code: "const owner = await isOwner(ctx.from.id); let msg = '**User**\\n/help, /reset\\n'; if (owner) msg += '**Owner**\\n/adduser, /addgroup, /listusers, /setconfig, /status, /addfeature, /listfeatures, /setcookies, /testcookies'; await ctx.reply(msg, { parse_mode: 'Markdown' });"
+        },
+        {
+            name: "reset",
+            description: "Clear memory",
+            ownerOnly: false,
+            code: "const { clearHistory } = await import('./db.js'); await clearHistory(ctx.from.id); await ctx.reply('🧹 Memory cleared.');"
+        }
+    ]
+
+    ⇌⥀ defaults.length > 0 {
+        ⚛ cmd ← defaults.shift()
+        ⚛ existing ← ↯ getCommand(cmd.name)
+        ⇌ !existing {
+            ↯ saveCommand(cmd.name, cmd.code, cmd.description, cmd.ownerOnly, ownerId)
+            🔬 "  📦 Seeded: /" + cmd.name
+        }
+    }
+}
