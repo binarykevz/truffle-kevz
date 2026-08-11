@@ -396,7 +396,7 @@ function emitToken(t: Token): string {
         case "CATALYST": return "return";
         case "COMBUSTION": return "throw";
         case "MUT_ATOM": return "=";
-        case "REACTION": return "=>";
+        case "REACTION": return "";  // ← Changed: don't emit => in expressions
         case "ABSORB": return "from";
         default: return t.value;
     }
