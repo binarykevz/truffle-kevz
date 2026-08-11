@@ -323,7 +323,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             i++;
             continue;
         }
-if (t.type === "REACTION") {
+        if (t.type === "REACTION") {
             out.push("=>");
             i++;
             continue;
