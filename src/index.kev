@@ -30,7 +30,9 @@
 }
 
 → escapeMarkdown(text) {
-    ⟲ text.replace(/[_*`\[\]()~>#+\-=|{}.!\\]/g, "\\$&")
+    ⚛ pattern ← "[_*\\[\\]()~>#+\\-=|{}.!\\\\]"
+    ⚛ regex ← new RegExp(pattern, "g")
+    ⟲ text.replace(regex, "\\$&")
 }
 
 export → safeReply(H₂O, text, options) {
