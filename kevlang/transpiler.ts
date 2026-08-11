@@ -3,25 +3,34 @@ import { tokenize, Token } from "./lexer";
 export function transpile(source: string, filename: string = "unknown.kev", isInner: boolean = false): string {
     const tokens = tokenize(source);
     const out: string[] = [];
+    let lineBuffer = "";  // ← Accumulates pass-through tokens on same line
     let i = 0;
 
     if (!isInner) {
-        out.push(`// ⚗ SYNTHESIZED from ${filename} — do not edit by hand`);
-        out.push(`// 🧪 Generated at ${new Date().toISOString()}`);
+        out.push(`// ⚗ SYNTHESIZED from ${filename}`);
         out.push("");
+    }
+
+    function flushLine() {
+        if (lineBuffer.trim()) {
+            out.push(lineBuffer.trim());
+            lineBuffer = "";
+        }
     }
 
     while (i < tokens.length) {
         const t = tokens[i];
 
-        // --- Skip NEWLINEs at top level ---
+        // NEWLINE: flush current line buffer
         if (t.type === "NEWLINE") {
+            flushLine();
             i++;
             continue;
         }
 
         // --- Import (Bond): 🧲 { A, B } ⬅ "path" ---
         if (t.type === "BOND") {
+            flushLine();
             i++;
             const parts: string[] = ["import"];
             while (i < tokens.length && tokens[i].type !== "ABSORB" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
@@ -42,10 +51,10 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Atom: ⚛ ---
         if (t.type === "ATOM") {
+            flushLine();
             const next = tokens[i + 1];
             const nextNext = tokens[i + 2];
 
-            // ⚛ IDENT ← expr  →  let name = expr
             if (next?.type === "IDENT" && nextNext?.type === "MUT_ATOM") {
                 i++;
                 const name = tokens[i].value;
@@ -56,7 +65,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // ⚛ { ... } ← expr  →  let { ... } = expr
             if (next?.value === "{") {
                 i++;
                 const block = readBracedBlock(tokens, i);
@@ -73,7 +81,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // ⚛ [ ... ] ← expr  →  let [ ... ] = expr
             if (next?.value === "[") {
                 i++;
                 const block = readBracketedBlock(tokens, i);
@@ -90,7 +97,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // ⚛ IDENT = expr  →  const name = expr
             if (next?.type === "IDENT" && nextNext?.type === "OPERATOR" && nextNext.value === "=") {
                 i++;
                 const name = tokens[i].value;
@@ -101,13 +107,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // Fallback: skip ⚛
             i++;
             continue;
         }
 
         // --- Solution: ⚗ ---
         if (t.type === "SOLUTION") {
+            flushLine();
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
             if (tokens[i]?.type === "IDENT") i++;
@@ -140,6 +146,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- DNA: 🧬 ---
         if (t.type === "DNA") {
+            flushLine();
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
             if (tokens[i]?.type === "IDENT") i++;
@@ -157,14 +164,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
 
-            // Skip → at end of line
             if (!next || next.type === "NEWLINE" || next.type === "EOF") {
                 i++;
                 continue;
             }
 
-            // → name(params) { body }
             if (next?.type === "IDENT") {
+                flushLine();
                 i++;
                 const name = tokens[i].value;
                 i++;
@@ -184,18 +190,20 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 }
 
                 out.push(`async function ${name}(${params}) {`);
-                out.push(rewriteInner(body));
+                const inner = rewriteInner(body);
+                if (inner) out.push(inner);
                 out.push(`}`);
                 continue;
             }
 
-            // Fallback: skip →
+            // Skip stray →
             i++;
             continue;
         }
 
         // --- Cycling: ⇌⥀ ---
         if (t.type === "CYCLING") {
+            flushLine();
             i++;
             let cond = "";
             if (tokens[i]?.value === "(") {
@@ -215,13 +223,15 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = block.endIdx;
             }
             out.push(`while (${cond.trim()}) {`);
-            out.push(rewriteInner(body));
+            const inner = rewriteInner(body);
+            if (inner) out.push(inner);
             out.push(`}`);
             continue;
         }
 
         // --- Equilibrium: ⇌ ---
         if (t.type === "EQUILIBRIUM") {
+            flushLine();
             i++;
             let cond = "";
             if (tokens[i]?.value === "(") {
@@ -241,13 +251,15 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = block.endIdx;
             }
             out.push(`if (${cond.trim()}) {`);
-            out.push(rewriteInner(body));
+            const inner = rewriteInner(body);
+            if (inner) out.push(inner);
             out.push(`}`);
             continue;
         }
 
         // --- Microscope: 🔬 ---
         if (t.type === "MICROSCOPE") {
+            flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
             out.push(`console.log(${expr});`);
@@ -257,6 +269,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Energy: ⚡ ---
         if (t.type === "ENERGY") {
+            flushLine();
             i++;
             let event = "";
             while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
@@ -266,7 +279,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             if (tokens[i]?.type === "REACTION") i++;
             while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
 
-            // Read handler (could be multi-line)
             let handler = "";
             let braceDepth = 0;
             let started = false;
@@ -296,13 +308,14 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Activate: ↯ ---
         if (t.type === "ACTIVATE") {
-            out.push("await");
+            lineBuffer += "await ";
             i++;
             continue;
         }
 
         // --- Catalyst: ⟲ ---
         if (t.type === "CATALYST") {
+            flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
             out.push(`return ${expr};`);
@@ -312,6 +325,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Combustion: 🔥 ---
         if (t.type === "COMBUSTION") {
+            flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
             out.push(`throw ${expr};`);
@@ -321,6 +335,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Shield/Bandage: 🛡️ / 🩹 ---
         if (t.type === "SHIELD") {
+            flushLine();
             i++;
             let tryBody = "";
             if (tokens[i]?.value === "{") {
@@ -345,53 +360,57 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 }
             }
             out.push(`try {`);
-            out.push(rewriteInner(tryBody));
+            const tryInner = rewriteInner(tryBody);
+            if (tryInner) out.push(tryInner);
             out.push(`} catch (${catchVar}) {`);
-            out.push(rewriteInner(catchBody));
+            const catchInner = rewriteInner(catchBody);
+            if (catchInner) out.push(catchInner);
             out.push(`}`);
             continue;
         }
 
         // --- Void: ∅ ---
         if (t.type === "VOID") {
-            out.push("null");
+            lineBuffer += "null ";
             i++;
             continue;
         }
 
         // --- Solvent: H₂O ---
         if (t.type === "SOLVENT") {
-            out.push("ctx");
+            lineBuffer += "ctx ";
             i++;
             continue;
         }
 
         // --- export ---
         if (t.type === "IDENT" && t.value === "export") {
-            out.push("export");
+            lineBuffer += "export ";
             i++;
             continue;
         }
 
         // --- Safety net: stray ← ---
         if (t.type === "MUT_ATOM") {
-            out.push("=");
+            lineBuffer += "= ";
             i++;
             continue;
         }
 
-        // --- Safety net: stray → ---
+        // --- Safety net: stray → (skip) ---
         if (t.type === "REACTION") {
             i++;
             continue;
         }
 
-        // --- Pass-through ---
-        out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
+        // --- Pass-through: accumulate on same line ---
+        lineBuffer += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
     }
 
-    // Clean up empty lines
+    // Flush any remaining content
+    flushLine();
+
     return out.filter(line => line.trim() !== "").join("\n");
 }
 
@@ -438,7 +457,6 @@ function skipPastEOL(tokens: Token[], start: number): number {
     return i;
 }
 
-// Params: SKIP newlines
 function readParenBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
     if (tokens[start]?.value !== "(") return { body: "", endIdx: start };
     let depth = 1;
@@ -458,7 +476,6 @@ function readParenBlock(tokens: Token[], start: number): { body: string; endIdx:
     return { body: body.trim(), endIdx: i };
 }
 
-// Bodies: PRESERVE newlines
 function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
     if (tokens[start]?.value !== "{") return { body: "", endIdx: start };
     let depth = 1;
@@ -482,7 +499,6 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
     return { body: body.trim(), endIdx: i };
 }
 
-// Arrays: SKIP newlines
 function readBracketedBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
     if (tokens[start]?.value !== "[") return { body: "", endIdx: start };
     let depth = 1;
@@ -490,19 +506,4 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
-        if (t.type === "NEWLINE") { i++; continue; }
-        if (t.value === "[") depth++;
-        else if (t.value === "]") {
-            depth--;
-            if (depth === 0) { i++; break; }
-        }
-        body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
-        i++;
-    }
-    return { body: body.trim(), endIdx: i };
-}
-
-function rewriteInner(body: string): string {
-    if (!body || body.trim() === "") return "";
-    return transpile(body, "inner", true);
-}
+        if (t.type === "
