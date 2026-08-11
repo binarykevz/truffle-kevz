@@ -76,6 +76,51 @@ export function tokenize(source: string): Token[] {
         if (matched) continue;
 
         // Strings
+// Regex literals: /pattern/flags
+        if (ch === "/" && i > 0) {
+            // Check if this looks like a regex (not division)
+            const prevNonSpace = findPrevNonSpace(tokens);
+            const isRegexContext = !prevNonSpace || 
+                prevNonSpace.type === "OPERATOR" || 
+                prevNonSpace.type === "PUNCT" && /[=(,;:{}\[]/.test(prevNonSpace.value) ||
+                prevNonSpace.type === "IDENT" && ["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else"].includes(prevNonSpace.value);
+            
+            if (isRegexContext) {
+                let regex = "/";
+                i++;
+                col++;
+                let inCharClass = false;
+                while (i < source.length) {
+                    const c = source[i];
+                    if (c === "\\") {
+                        regex += c + source[i + 1];
+                        i += 2;
+                        col += 2;
+                        continue;
+                    }
+                    if (c === "[") inCharClass = true;
+                    if (c === "]") inCharClass = false;
+                    if (c === "/" && !inCharClass) {
+                        regex += c;
+                        i++;
+                        col++;
+                        // Read flags
+                        while (i < source.length && /[gimsuy]/.test(source[i])) {
+                            regex += source[i];
+                            i++;
+                            col++;
+                        }
+                        break;
+                    }
+                    if (c === "\n") break; // Not a regex if we hit newline
+                    regex += c;
+                    i++;
+                    col++;
+                }
+                tokens.push({ type: "PUNCT", value: regex, line, col });
+                continue;
+            }
+        }
         if (ch === '"' || ch === "'" || ch === "`") {
             const quote = ch;
             let str = ch;
@@ -136,4 +181,10 @@ export function tokenize(source: string): Token[] {
 
     tokens.push({ type: "EOF", value: "", line, col });
     return tokens;
+}
+function findPrevNonSpace(tokens: Token[]): Token | null {
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        if (tokens[i].type !== "NEWLINE") return tokens[i];
+    }
+    return null;
 }
