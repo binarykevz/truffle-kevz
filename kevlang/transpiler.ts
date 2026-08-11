@@ -150,13 +150,18 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
             
-            // If next is an identifier, it's a function declaration
+            // Skip → followed by NEWLINE (line continuation, not a real arrow)
+            if (!next || next.type === "NEWLINE" || next.type === "EOF") {
+                i++;
+                continue;
+            }
+            
+            // Pattern: → name(params) { body }  →  async function name(params) { body }
             if (next?.type === "IDENT") {
                 i++; // skip →
                 const name = tokens[i].value;
                 i++; // skip name
                 
-                // Read parameters
                 let params = "";
                 if (tokens[i]?.value === "(") {
                     const block = readParenBlock(tokens, i);
@@ -164,7 +169,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     i = block.endIdx;
                 }
                 
-                // Read body
                 let body = "";
                 if (tokens[i]?.value === "{") {
                     const block = readBracedBlock(tokens, i);
@@ -176,15 +180,14 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
             
-            // Otherwise it's an arrow function or assignment
-            // Look back to see if there's a parameter list
-            if (tokens[i - 1]?.value === ")") {
+            // Pattern: → (params) => { body }  →  arrow function
+            if (next?.value === "(") {
                 out.push("=>");
                 i++;
                 continue;
             }
             
-            // Default: treat as arrow
+            // Fallback: emit => for any other case
             out.push("=>");
             i++;
             continue;
@@ -249,18 +252,48 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 
         // --- Energy (event binding): ⚡ event → handler ---
         if (t.type === "ENERGY") {
-            i++;
+            i++; // skip ⚡
+            
+            // Read event name until → or NEWLINE
             let event = "";
-            while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE") {
+            while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
                 event += tokens[i].value;
                 i++;
             }
+            
+            // Skip the → if present
             if (tokens[i]?.type === "REACTION") i++;
+            
+            // Skip any NEWLINEs between → and handler
+            while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
+            
+            // Read the handler (could be multi-line with braces)
             let handler = "";
-            while (i < tokens.length && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
-                handler += emitToken(tokens[i]) + " ";
+            let braceDepth = 0;
+            let started = false;
+            
+            while (i < tokens.length && tokens[i].type !== "EOF") {
+                const t2 = tokens[i];
+                
+                if (t2.value === "{") {
+                    braceDepth++;
+                    started = true;
+                } else if (t2.value === "}") {
+                    braceDepth--;
+                    if (started && braceDepth === 0) {
+                        handler += emitToken(t2);
+                        i++;
+                        break;
+                    }
+                } else if (t2.type === "NEWLINE" && !started && braceDepth === 0) {
+                    // Single-line handler (no braces)
+                    break;
+                }
+                
+                handler += emitToken(t2) + (needsSpace(t2, tokens[i + 1]) ? " " : "");
                 i++;
             }
+            
             out.push(`bot.command(${JSON.stringify(event.trim())}, ${handler.trim()});`);
             continue;
         }
