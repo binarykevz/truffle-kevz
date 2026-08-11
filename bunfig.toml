@@ -1,0 +1,4 @@
+# bunfig.toml
+# Tells Bun to load the KevLang plugin before running any script.
+
+preload = ["./kevlang/plugin.ts"]
