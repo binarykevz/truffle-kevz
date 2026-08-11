@@ -120,11 +120,31 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Solution (object): ⚗ name { ... } ---
+        // --- Solution (object/variable): ⚗ name { ... } | ⚗ name ← value | ⚗ name = value ---
         if (t.type === "SOLUTION") {
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
             if (tokens[i]?.type === "IDENT") i++;
+
+            // Pattern A: ⚗ name ← value  →  let name = value
+            if (tokens[i]?.type === "MUT_ATOM") {
+                i++; // skip ←
+                const expr = readUntilEOL(tokens, i);
+                out.push(`let ${name} = ${expr};`);
+                i = skipPastEOL(tokens, i);
+                continue;
+            }
+
+            // Pattern B: ⚗ name = value  →  const name = value
+            if (tokens[i]?.type === "OPERATOR" && tokens[i].value === "=") {
+                i++; // skip =
+                const expr = readUntilEOL(tokens, i);
+                out.push(`const ${name} = ${expr};`);
+                i = skipPastEOL(tokens, i);
+                continue;
+            }
+
+            // Pattern C: ⚗ name { ... }  →  const name = { ... }
             let body = "";
             if (tokens[i]?.value === "{") {
                 const block = readBracedBlock(tokens, i);
