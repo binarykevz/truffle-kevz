@@ -361,9 +361,17 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
 // ============================================================
 
 function emitToken(t: Token): string {
-    if (t.type === "SOLVENT") return "ctx";
-    if (t.type === "VOID") return "null";
-    return t.value;
+    switch (t.type) {
+        case "SOLVENT": return "ctx";
+        case "VOID": return "null";
+        case "ACTIVATE": return "await";
+        case "CATALYST": return "return";
+        case "COMBUSTION": return "throw";
+        case "MUT_ATOM": return "=";
+        case "REACTION": return "=>";
+        case "ABSORB": return "from";
+        default: return t.value;
+    }
 }
 
 function needsSpace(a: Token, b: Token | undefined): boolean {
