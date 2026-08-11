@@ -1,0 +1,36 @@
+# 🔧 Dynamic Command Executor
+
+🧲 * ⬅ "./db"
+
+export → executeCommandCode(code, H₂O) {
+    ⚛ jsCode ← code
+    🛡️ {
+        ⚛ transpiler ← new Bun.Transpiler({ loader: "ts" })
+        jsCode = transpiler.transformSync(code)
+    } 🩹 (e) { }
+
+    ⚗ api {
+        ctx: H₂O,
+        db: {
+            getConfig: getConfig,
+            setConfig: setConfig,
+            deleteConfig: deleteConfig,
+            getAllConfig: getAllConfig,
+            addAllowedUser: addAllowedUser,
+            addAllowedGroup: addAllowedGroup,
+            removeAllowedUser: removeAllowedUser,
+            listAllowedUsers: listAllowedUsers,
+            getCommand: getCommand,
+            saveCommand: saveCommand,
+            deleteCommand: deleteCommand,
+            listCommands: listCommands
+        },
+        auth: { isOwner: isOwner, isAllowedUser: isAllowedUser, getOwner: getOwner },
+        utils: { fetch: fetch, Bun: Bun }
+    }
+
+    ⚛ wrapped ← "const { ctx, db, auth, utils } = api; const { getConfig, setConfig, deleteConfig, getAllConfig, addAllowedUser, addAllowedGroup, removeAllowedUser, listAllowedUsers, getCommand, saveCommand, deleteCommand, listCommands } = db; const { isOwner, isAllowedUser, getOwner } = auth; const { fetch, Bun } = utils; " + jsCode
+    ⚛ AsyncFunction ← Object.getPrototypeOf(async function() {}).constructor
+    ⚛ fn ← new AsyncFunction("api", wrapped)
+    ↯ fn(api)
+}
