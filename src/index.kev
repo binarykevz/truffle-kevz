@@ -35,7 +35,7 @@
     ⟲ text.replace(regex, "\\$&")
 }
 
-export → safeReply(H₂O, text, options) {
+ → safeReply(H₂O, text, options) {
     🛡️ {
         ⟲ ↯ H₂O.reply(text, { parse_mode: "Markdown", ...(options || {}) })
     } 🩹 (e) {
