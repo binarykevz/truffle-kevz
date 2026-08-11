@@ -149,9 +149,10 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         // --- Reaction (async function): → name(params) { body } ---
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
+            const prev = tokens[i - 1];
             
-            // Debug logging
-            console.error(`[DEBUG] REACTION token at position ${i}, next token type: ${next?.type}, value: ${next?.value}`);
+            // Log EVERY REACTION token
+            console.error(`[DEBUG REACTION] pos=${i}, prev="${prev?.value}" (type=${prev?.type}), next="${next?.value}" (type=${next?.type})`);
             
             // Pattern: → name(params) { body }
             if (next?.type === "IDENT") {
@@ -170,13 +171,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     body = block.body;
                     i = block.endIdx;
                 }
-                console.error(`[DEBUG] Emitting: async function ${name}(${params})`);
+                console.error(`[DEBUG] ✓ Emitting: async function ${name}`);
                 out.push(`async function ${name}(${params}) {${rewriteInner(body)}}`);
                 continue;
             }
             
             // Fallback: stray → becomes =>
-            console.error(`[DEBUG] REACTION fallback: emitting =>`);
+            console.error(`[DEBUG] ⚠️ REACTION fallback at pos ${i}: emitting =>`);
             out.push("=>");
             i++;
             continue;
