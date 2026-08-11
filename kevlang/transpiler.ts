@@ -107,7 +107,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = skipPastEOL(tokens, i);
                 continue;
             }
-        }
+        
 
         // --- Immutable Atom: ⚛ name = expr ---
         if (t.type === "ATOM" && tokens[i + 1]?.type === "IDENT" && tokens[i + 2]?.type === "OPERATOR" && tokens[i + 2].value === "=") {
