@@ -381,10 +381,10 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
         i++;
     }
-// Clean up: remove any lines that are just "=>" or empty
+    // Clean up: remove empty lines and bare => lines
     const cleaned = out.filter(line => {
         const trimmed = line.trim();
-        return trimmed !== "=>" && trimmed !== "";
+        return trimmed !== "" && trimmed !== "=>";
     });
     
     return cleaned.join("\n");
@@ -442,6 +442,7 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
+        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
         if (t.value === "{") depth++;
         else if (t.value === "}") {
             depth--;
@@ -450,7 +451,7 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
         body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
     }
-    return { body, endIdx: i };
+    return { body: body.trim(), endIdx: i };
 }
 
 function readBracketedBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
@@ -460,6 +461,7 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
+        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
         if (t.value === "[") depth++;
         else if (t.value === "]") {
             depth--;
@@ -468,7 +470,7 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
         body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
     }
-    return { body, endIdx: i };
+    return { body: body.trim(), endIdx: i };
 }
 
 function readParenBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
@@ -478,6 +480,7 @@ function readParenBlock(tokens: Token[], start: number): { body: string; endIdx:
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
+        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
         if (t.value === "(") depth++;
         else if (t.value === ")") {
             depth--;
@@ -486,7 +489,7 @@ function readParenBlock(tokens: Token[], start: number): { body: string; endIdx:
         body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
     }
-    return { body, endIdx: i };
+    return { body: body.trim(), endIdx: i };
 }
 
 function rewriteInner(body: string): string {
