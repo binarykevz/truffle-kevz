@@ -1,0 +1,46 @@
+# 📱 Device Control Reactor
+
+🧲 { existsSync } ⬅ "fs"
+
+export → isTermux() {
+    ⟲ existsSync("/data/data/com.termux") || !!process.env.TERMUX_VERSION || process.platform === "android"
+}
+
+export ⚗ APP_REGISTRY {
+    whatsapp: { android: "whatsapp://", web: "https://wa.me/" },
+    telegram: { android: "tg://", web: "https://t.me/" },
+    gmail: { android: "gmail://", web: "https://mail.google.com" },
+    youtube: { android: "vnd.youtube://", web: "https://youtube.com" },
+    maps: { android: "geo:0,0", web: "https://maps.google.com" },
+    chrome: { android: "googlechrome://", web: "https://google.com" },
+    instagram: { android: "instagram://", web: "https://instagram.com" },
+    twitter: { android: "twitter://", web: "https://twitter.com" },
+    facebook: { android: "fb://", web: "https://facebook.com" },
+    spotify: { android: "spotify:", web: "https://open.spotify.com" },
+    dialer: { android: "tel:", web: "" },
+    sms: { android: "sms:", web: "" }
+}
+
+export → launchOnTermux(appName, extra) {
+    ⚛ key ← appName.toLowerCase()
+    ⚛ app ← APP_REGISTRY[key]
+    ⇌ app?.android {
+        ⚛ uri ← app.android + (extra || "")
+        ⚛ proc ← Bun.spawn(["am", "start", "-a", "android.intent.action.VIEW", "-d", uri], { stdout: "pipe", stderr: "pipe" })
+        ⚛ err ← ↯ new Response(proc.stderr).text()
+        ↯ proc.exited
+        ⇌ err.toLowerCase().includes("no activity found") { 🔥 new Error("No app handles " + appName) }
+        ⟲ "✅ Launched " + appName
+    }
+    🔥 new Error("Unknown app: " + appName)
+}
+
+export → listInstalledApps() {
+    ⚛ proc ← Bun.spawn(["pm", "list", "packages", "-3"], { stdout: "pipe" })
+    ⚛ out ← ↯ new Response(proc.stdout).text()
+    ⟲ out.split("\n").map(line => line.replace("package:", "").trim()).filter(Boolean).sort()
+}
+
+export → getKnownApps() {
+    ⟲ Object.keys(APP_REGISTRY)
+}
