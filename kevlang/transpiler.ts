@@ -42,14 +42,71 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         }
 
         // --- Mutable Atom: ⚛ name ← expr ---
-        if (t.type === "ATOM" && tokens[i + 1]?.type === "IDENT" && tokens[i + 2]?.type === "MUT_ATOM") {
-            i++;
-            const name = tokens[i].value;
-            i += 2;
-            const expr = readUntilEOL(tokens, i);
-            out.push(`let ${name} = ${expr};`);
-            i = skipPastEOL(tokens, i);
-            continue;
+        // --- Destructuring: ⚛ { a, b } ← expr ---
+        // --- Destructuring: ⚛ [a, b] ← expr ---
+        if (t.type === "ATOM") {
+            const next = tokens[i + 1];
+            const nextNext = tokens[i + 2];
+
+            // Pattern 1: ⚛ IDENT ← expr  →  let name = expr
+            if (next?.type === "IDENT" && nextNext?.type === "MUT_ATOM") {
+                i++;
+                const name = tokens[i].value;
+                i += 2; // skip name and ←
+                const expr = readUntilEOL(tokens, i);
+                out.push(`let ${name} = ${expr};`);
+                i = skipPastEOL(tokens, i);
+                continue;
+            }
+
+            // Pattern 2: ⚛ { ... } ← expr  →  let { ... } = expr
+            if (next?.value === "{" && nextNext?.type !== undefined) {
+                i++; // skip ⚛
+                const block = readBracedBlock(tokens, i);
+                i = block.endIdx;
+                // Expect ← after the block
+                while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
+                if (tokens[i]?.type === "MUT_ATOM") {
+                    i++; // skip ←
+                    const expr = readUntilEOL(tokens, i);
+                    out.push(`let {${rewriteInner(block.body)}} = ${expr};`);
+                    i = skipPastEOL(tokens, i);
+                    continue;
+                }
+                // If no ←, treat as immutable object: const { ... } = expr
+                // This shouldn't happen but handle gracefully
+                out.push(`const {${rewriteInner(block.body)}} = {};`);
+                continue;
+            }
+
+            // Pattern 3: ⚛ [ ... ] ← expr  →  let [ ... ] = expr
+            if (next?.value === "[" && nextNext?.type !== undefined) {
+                i++; // skip ⚛
+                const block = readBracketedBlock(tokens, i);
+                i = block.endIdx;
+                // Expect ← after the block
+                while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
+                if (tokens[i]?.type === "MUT_ATOM") {
+                    i++; // skip ←
+                    const expr = readUntilEOL(tokens, i);
+                    out.push(`let [${rewriteInner(block.body)}] = ${expr};`);
+                    i = skipPastEOL(tokens, i);
+                    continue;
+                }
+                out.push(`const [${rewriteInner(block.body)}] = [];`);
+                continue;
+            }
+
+            // Pattern 4: ⚛ IDENT = expr  →  const name = expr (immutable)
+            if (next?.type === "IDENT" && nextNext?.type === "OPERATOR" && nextNext.value === "=") {
+                i++;
+                const name = tokens[i].value;
+                i += 2; // skip name and =
+                const expr = readUntilEOL(tokens, i);
+                out.push(`const ${name} = ${expr};`);
+                i = skipPastEOL(tokens, i);
+                continue;
+            }
         }
 
         // --- Immutable Atom: ⚛ name = expr ---
