@@ -1,0 +1,68 @@
+# ⚗ File Conversion Reactor
+
+🧲 { spawn } ⬅ "bun"
+🧲 { dirname, join, parse } ⬅ "path"
+🧲 { createHash } ⬅ "crypto"
+🧲 sharp ⬅ "sharp"
+🧲 { conversionCache, hashKey } ⬅ "./cache"
+
+export ⚗ CONVERSION_MATRIX {
+    "pdf": ["docx", "txt", "png", "jpg"],
+    "docx": ["pdf", "txt", "html"],
+    "pptx": ["pdf", "png"],
+    "xlsx": ["pdf", "csv"],
+    "jpg": ["png", "webp", "pdf"],
+    "jpeg": ["png", "webp", "pdf"],
+    "png": ["jpg", "webp", "pdf"],
+    "heic": ["jpg", "png"],
+    "webp": ["jpg", "png"],
+    "mp3": ["wav", "ogg", "m4a"],
+    "mp4": ["gif", "mp3", "avi"],
+    "zip": ["7z", "tar.gz"],
+    "7z": ["zip", "tar.gz"]
+}
+
+export → getConversionOptions(ext) {
+    ⟲ CONVERSION_MATRIX[ext.toLowerCase()] || []
+}
+
+export → convertFile(inputPath, sourceExt, targetExt) {
+    ⚛ dir ← dirname(inputPath)
+    ⚛ baseName ← parse(inputPath).name
+    ⚛ ext ← sourceExt.toLowerCase()
+
+    ⚛ fileContent ← ↯ Bun.file(inputPath).arrayBuffer()
+    ⚛ contentHash ← createHash("sha256").update(new Uint8Array(fileContent)).digest("hex").slice(0, 16)
+    ⚛ cacheKey ← hashKey(contentHash, ext, targetExt)
+
+    ⚛ cachedPath ← conversionCache.get(cacheKey)
+    ⇌ cachedPath && (↯ Bun.file(cachedPath).exists()) {
+        🔬 "[cache] Conversion hit: " + ext + " → " + targetExt
+        ⟲ cachedPath
+    }
+
+    ⚛ outputPath ← join(dir, baseName + "_" + contentHash.slice(0, 8) + "." + targetExt)
+
+    ⇌ ["jpg", "jpeg", "png", "webp", "heic"].includes(ext) {
+        ↯ sharp(inputPath).toFormat(targetExt).toFile(outputPath)
+    }
+
+    ⇌ ["pdf", "docx", "pptx", "xlsx"].includes(ext) || targetExt === "pdf" {
+        ⚛ proc ← spawn(["soffice", "--headless", "--convert-to", targetExt, "--outdir", dir, inputPath])
+        ⚛ code ← ↯ proc.exited
+        ⇌ code !== 0 { 🔥 new Error("LibreOffice failed") }
+    }
+
+    ⇌ ["mp3", "mp4", "wav", "ogg", "m4a", "avi", "gif"].includes(ext) || ["mp3", "wav", "ogg", "m4a", "gif", "avi"].includes(targetExt) {
+        ⚛ proc ← spawn(["ffmpeg", "-y", "-i", inputPath, outputPath])
+        ⚛ code ← ↯ proc.exited
+        ⇌ code !== 0 { 🔥 new Error("FFmpeg failed") }
+    }
+
+    ⇌ (↯ Bun.file(outputPath).exists()) {
+        conversionCache.set(cacheKey, outputPath)
+        🔬 "[cache] Cached: " + ext + " → " + targetExt
+    }
+
+    ⟲ outputPath
+}
