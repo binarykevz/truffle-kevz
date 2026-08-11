@@ -97,13 +97,14 @@ export → safeReply(H₂O, text, options) {
     }
 
     # ⚡ /addgroup
-    ⚡ /addgroup → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const chat = H₂O.chat;
-        if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) return H₂O.reply("⚠️ Use inside a group.");
-        const added = await addAllowedGroup(chat.id, chat.title, chat.username, H₂O.from.id);
-        return H₂O.reply(added ? `✅ Group approved: ${chat.title || chat.id}` : "ℹ️ Already allowed");
-    }
+    → handleAddGroup(H₂O) {
+    ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+    ⚛ chat ← H₂O.chat
+    ⇌ !chat || (chat.type !== 'group' && chat.type !== 'supergroup') { ⟲ H₂O.reply("⚠️ Use inside a group.") }
+    ⚛ added ← ↯ addAllowedGroup(chat.id, chat.title, chat.username, H₂O.from.id)
+    ⟲ H₂O.reply(added ? `✅ Group approved: ${chat.title || chat.id}` : "ℹ️ Already allowed")
+}
+⚡ /addgroup → handleAddGroup
 
     # ⚡ /listusers
     ⚡ /listusers → async (H₂O) => {
