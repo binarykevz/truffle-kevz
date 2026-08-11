@@ -338,11 +338,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             i++;
             continue;
         }
-        if (t.type === "REACTION") {
-            out.push("=>");
-            i++;
-            continue;
-        }
+  
 
         // --- Pass-through ---
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
