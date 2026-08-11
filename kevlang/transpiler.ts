@@ -442,11 +442,16 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
-        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
         if (t.value === "{") depth++;
         else if (t.value === "}") {
             depth--;
             if (depth === 0) { i++; break; }
+        }
+        // PRESERVE newlines in function bodies (they're statement separators)
+        if (t.type === "NEWLINE") {
+            body += "\n";
+            i++;
+            continue;
         }
         body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
@@ -491,7 +496,7 @@ function readParenBlock(tokens: Token[], start: number): { body: string; endIdx:
     }
     return { body: body.trim(), endIdx: i };
 }
-
 function rewriteInner(body: string): string {
+    if (!body || body.trim() === "") return "";
     return transpile(body, "inner", true);
 }
