@@ -1,0 +1,23 @@
+{
+  "name": "truffle-agent-v2",
+  "version": "4.0.0-kev",
+  "description": "Telegram agentic bot written in KevLang (chemistry-themed DSL)",
+  "type": "module",
+  "scripts": {
+    "synthesize": "bun run kevlang/compiler.ts",
+    "start": "bun run kevlang/compiler.ts && bun run src/generated/index.ts",
+    "dev": "bun run kevlang/compiler.ts && bun run --watch src/generated/index.ts",
+    "clean": "rm -rf src/generated"
+  },
+  "dependencies": {
+    "grammy": "^1.28.0",
+    "cheerio": "^1.0.0-rc.12",
+    "@libsql/client": "^0.14.0",
+    "sharp": "^0.33.4",
+    "lru-cache": "^10.2.0",
+    "glob": "^10.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
