@@ -249,7 +249,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         if (t.type === "ENERGY") {
             i++; // skip ⚡
             
-            // Read event name until → or NEWLINE
+            // Read event name
             let event = "";
             while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
                 event += tokens[i].value;
@@ -259,29 +259,30 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             // Skip the → if present
             if (tokens[i]?.type === "REACTION") i++;
             
-            // Skip any NEWLINEs between → and handler
+            // Skip NEWLINEs
             while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
             
-            // Read the handler (could be multi-line with braces)
+            // Read the entire handler including multi-line bodies
             let handler = "";
             let braceDepth = 0;
+            let parenDepth = 0;
             let started = false;
             
             while (i < tokens.length && tokens[i].type !== "EOF") {
                 const t2 = tokens[i];
                 
-                if (t2.value === "{") {
-                    braceDepth++;
-                    started = true;
-                } else if (t2.value === "}") {
+                if (t2.value === "{") { braceDepth++; started = true; }
+                else if (t2.value === "}") {
                     braceDepth--;
                     if (started && braceDepth === 0) {
                         handler += emitToken(t2);
                         i++;
                         break;
                     }
-                } else if (t2.type === "NEWLINE" && !started && braceDepth === 0) {
-                    // Single-line handler (no braces)
+                }
+                else if (t2.value === "(") { parenDepth++; }
+                else if (t2.value === ")") { parenDepth--; }
+                else if (t2.type === "NEWLINE" && !started && braceDepth === 0 && parenDepth === 0) {
                     break;
                 }
                 
@@ -380,7 +381,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
         i++;
     }
-
+// Clean up: remove any lines that are just "=>" or empty
+    const cleaned = out.filter(line => {
+        const trimmed = line.trim();
+        return trimmed !== "=>" && trimmed !== "";
+    });
+    
+    return cleaned.join("\n");
     return out.join("\n");
 }
 
