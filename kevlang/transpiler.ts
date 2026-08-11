@@ -14,6 +14,12 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
     while (i < tokens.length) {
         const t = tokens[i];
 
+        // --- Skip NEWLINEs at top level ---
+        if (t.type === "NEWLINE") {
+            i++;
+            continue;
+        }
+
         // --- Import (Bond): 🧲 { A, B } ⬅ "path" ---
         if (t.type === "BOND") {
             i++;
@@ -34,12 +40,12 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Atom (variable declarations) ---
+        // --- Atom: ⚛ ---
         if (t.type === "ATOM") {
             const next = tokens[i + 1];
             const nextNext = tokens[i + 2];
 
-            // Pattern: ⚛ IDENT ← expr  →  let name = expr
+            // ⚛ IDENT ← expr  →  let name = expr
             if (next?.type === "IDENT" && nextNext?.type === "MUT_ATOM") {
                 i++;
                 const name = tokens[i].value;
@@ -50,7 +56,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // Pattern: ⚛ { ... } ← expr  →  let { ... } = expr
+            // ⚛ { ... } ← expr  →  let { ... } = expr
             if (next?.value === "{") {
                 i++;
                 const block = readBracedBlock(tokens, i);
@@ -67,7 +73,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // Pattern: ⚛ [ ... ] ← expr  →  let [ ... ] = expr
+            // ⚛ [ ... ] ← expr  →  let [ ... ] = expr
             if (next?.value === "[") {
                 i++;
                 const block = readBracketedBlock(tokens, i);
@@ -84,7 +90,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // Pattern: ⚛ IDENT = expr  →  const name = expr
+            // ⚛ IDENT = expr  →  const name = expr
             if (next?.type === "IDENT" && nextNext?.type === "OPERATOR" && nextNext.value === "=") {
                 i++;
                 const name = tokens[i].value;
@@ -94,15 +100,18 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = skipPastEOL(tokens, i);
                 continue;
             }
+
+            // Fallback: skip ⚛
+            i++;
+            continue;
         }
 
-        // --- Solution (object/variable) ---
+        // --- Solution: ⚗ ---
         if (t.type === "SOLUTION") {
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
             if (tokens[i]?.type === "IDENT") i++;
 
-            // ⚗ name ← value  →  let name = value
             if (tokens[i]?.type === "MUT_ATOM") {
                 i++;
                 const expr = readUntilEOL(tokens, i);
@@ -111,7 +120,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // ⚗ name = value  →  const name = value
             if (tokens[i]?.type === "OPERATOR" && tokens[i].value === "=") {
                 i++;
                 const expr = readUntilEOL(tokens, i);
@@ -120,7 +128,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 continue;
             }
 
-            // ⚗ name { ... }  →  const name = { ... }
             let body = "";
             if (tokens[i]?.value === "{") {
                 const block = readBracedBlock(tokens, i);
@@ -131,7 +138,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- DNA strand (array): 🧬 name [ ... ] ---
+        // --- DNA: 🧬 ---
         if (t.type === "DNA") {
             i++;
             const name = tokens[i]?.type === "IDENT" ? tokens[i].value : "_";
@@ -146,49 +153,48 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        
-          // --- Reaction: → ---
+        // --- Reaction: → ---
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
-            
-            // Skip → followed by NEWLINE or EOF (line continuation)
+
+            // Skip → at end of line
             if (!next || next.type === "NEWLINE" || next.type === "EOF") {
                 i++;
                 continue;
             }
-            
-            // Pattern: → name(params) { body }  →  async function
+
+            // → name(params) { body }
             if (next?.type === "IDENT") {
                 i++;
                 const name = tokens[i].value;
                 i++;
-                
+
                 let params = "";
                 if (tokens[i]?.value === "(") {
                     const block = readParenBlock(tokens, i);
                     params = rewriteInner(block.body);
                     i = block.endIdx;
                 }
-                
+
                 let body = "";
                 if (tokens[i]?.value === "{") {
                     const block = readBracedBlock(tokens, i);
                     body = block.body;
                     i = block.endIdx;
                 }
-                
-                out.push(`async function ${name}(${params}) {${rewriteInner(body)}}`);
+
+                out.push(`async function ${name}(${params}) {`);
+                out.push(rewriteInner(body));
+                out.push(`}`);
                 continue;
             }
-            
-            // For any other case, just skip the → entirely
-            // (it's likely part of a construct handled elsewhere)
+
+            // Fallback: skip →
             i++;
             continue;
-        }  
-            
+        }
 
-        // --- Cycling (while): ⇌⥀ condition { body } ---
+        // --- Cycling: ⇌⥀ ---
         if (t.type === "CYCLING") {
             i++;
             let cond = "";
@@ -197,7 +203,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 cond = rewriteInner(p.body);
                 i = p.endIdx;
             } else {
-                while (i < tokens.length && tokens[i].value !== "{") {
+                while (i < tokens.length && tokens[i].value !== "{" && tokens[i].type !== "NEWLINE") {
                     cond += emitToken(tokens[i]) + " ";
                     i++;
                 }
@@ -208,11 +214,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 body = block.body;
                 i = block.endIdx;
             }
-            out.push(`while (${cond.trim()}) {${rewriteInner(body)}}`);
+            out.push(`while (${cond.trim()}) {`);
+            out.push(rewriteInner(body));
+            out.push(`}`);
             continue;
         }
 
-        // --- Equilibrium (if): ⇌ condition { body } ---
+        // --- Equilibrium: ⇌ ---
         if (t.type === "EQUILIBRIUM") {
             i++;
             let cond = "";
@@ -221,7 +229,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 cond = rewriteInner(p.body);
                 i = p.endIdx;
             } else {
-                while (i < tokens.length && tokens[i].value !== "{") {
+                while (i < tokens.length && tokens[i].value !== "{" && tokens[i].type !== "NEWLINE") {
                     cond += emitToken(tokens[i]) + " ";
                     i++;
                 }
@@ -232,11 +240,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 body = block.body;
                 i = block.endIdx;
             }
-            out.push(`if (${cond.trim()}) {${rewriteInner(body)}}`);
+            out.push(`if (${cond.trim()}) {`);
+            out.push(rewriteInner(body));
+            out.push(`}`);
             continue;
         }
 
-        // --- Microscope: 🔬 expr ---
+        // --- Microscope: 🔬 ---
         if (t.type === "MICROSCOPE") {
             i++;
             const expr = readUntilEOL(tokens, i);
@@ -245,32 +255,23 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Energy (event binding): ⚡ event → handler ---
+        // --- Energy: ⚡ ---
         if (t.type === "ENERGY") {
-            i++; // skip ⚡
-            
-            // Read event name
+            i++;
             let event = "";
             while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
                 event += tokens[i].value;
                 i++;
             }
-            
-            // Skip the → if present
             if (tokens[i]?.type === "REACTION") i++;
-            
-            // Skip NEWLINEs
             while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
-            
-            // Read the entire handler including multi-line bodies
+
+            // Read handler (could be multi-line)
             let handler = "";
             let braceDepth = 0;
-            let parenDepth = 0;
             let started = false;
-            
             while (i < tokens.length && tokens[i].type !== "EOF") {
                 const t2 = tokens[i];
-                
                 if (t2.value === "{") { braceDepth++; started = true; }
                 else if (t2.value === "}") {
                     braceDepth--;
@@ -280,28 +281,27 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                         break;
                     }
                 }
-                else if (t2.value === "(") { parenDepth++; }
-                else if (t2.value === ")") { parenDepth--; }
-                else if (t2.type === "NEWLINE" && !started && braceDepth === 0 && parenDepth === 0) {
-                    break;
+                if (t2.type === "NEWLINE") {
+                    handler += "\n";
+                    i++;
+                    continue;
                 }
-                
                 handler += emitToken(t2) + (needsSpace(t2, tokens[i + 1]) ? " " : "");
                 i++;
             }
-            
+
             out.push(`bot.command(${JSON.stringify(event.trim())}, ${handler.trim()});`);
             continue;
         }
 
-        // --- Activation (await): ↯ ---
+        // --- Activate: ↯ ---
         if (t.type === "ACTIVATE") {
             out.push("await");
             i++;
             continue;
         }
 
-        // --- Catalyst (return): ⟲ expr ---
+        // --- Catalyst: ⟲ ---
         if (t.type === "CATALYST") {
             i++;
             const expr = readUntilEOL(tokens, i);
@@ -310,7 +310,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Combustion (throw): 🔥 expr ---
+        // --- Combustion: 🔥 ---
         if (t.type === "COMBUSTION") {
             i++;
             const expr = readUntilEOL(tokens, i);
@@ -319,7 +319,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Shield/Bandage (try/catch): 🛡️ { } 🩹 (e) { } ---
+        // --- Shield/Bandage: 🛡️ / 🩹 ---
         if (t.type === "SHIELD") {
             i++;
             let tryBody = "";
@@ -344,51 +344,55 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     i = block.endIdx;
                 }
             }
-            out.push(`try {${rewriteInner(tryBody)}} catch (${catchVar}) {${rewriteInner(catchBody)}}`);
+            out.push(`try {`);
+            out.push(rewriteInner(tryBody));
+            out.push(`} catch (${catchVar}) {`);
+            out.push(rewriteInner(catchBody));
+            out.push(`}`);
             continue;
         }
 
-        // --- Void ---
+        // --- Void: ∅ ---
         if (t.type === "VOID") {
             out.push("null");
             i++;
             continue;
         }
 
-        // --- Universal Solvent: H₂O → ctx ---
+        // --- Solvent: H₂O ---
         if (t.type === "SOLVENT") {
             out.push("ctx");
             i++;
             continue;
         }
 
-        // --- export modifier ---
+        // --- export ---
         if (t.type === "IDENT" && t.value === "export") {
             out.push("export");
             i++;
             continue;
         }
 
-        // --- Safety net: stray ← becomes assignment ---
+        // --- Safety net: stray ← ---
         if (t.type === "MUT_ATOM") {
             out.push("=");
             i++;
             continue;
         }
-  
+
+        // --- Safety net: stray → ---
+        if (t.type === "REACTION") {
+            i++;
+            continue;
+        }
 
         // --- Pass-through ---
         out.push(emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : ""));
         i++;
     }
-    // Clean up: remove empty lines and bare => lines
-    const cleaned = out.filter(line => {
-        const trimmed = line.trim();
-        return trimmed !== "" && trimmed !== "=>";
-    });
-    
-    return cleaned.join("\n");
-    return out.join("\n");
+
+    // Clean up empty lines
+    return out.filter(line => line.trim() !== "").join("\n");
 }
 
 // ============================================================
@@ -403,7 +407,7 @@ function emitToken(t: Token): string {
         case "CATALYST": return "return";
         case "COMBUSTION": return "throw";
         case "MUT_ATOM": return "=";
-        case "REACTION": return "";  // ← Changed: don't emit => in expressions
+        case "REACTION": return "";
         case "ABSORB": return "from";
         default: return t.value;
     }
@@ -414,7 +418,6 @@ function needsSpace(a: Token, b: Token | undefined): boolean {
     if (a.type === "NEWLINE" || b.type === "NEWLINE") return false;
     if (a.type === "PUNCT" && /[(){}\[\],.;:]/.test(a.value)) return false;
     if (b.type === "PUNCT" && /[(){}\[\],.;:]/.test(b.value)) return false;
-    if (a.type === "PUNCT" || b.type === "PUNCT") return false;
     return true;
 }
 
@@ -435,6 +438,27 @@ function skipPastEOL(tokens: Token[], start: number): number {
     return i;
 }
 
+// Params: SKIP newlines
+function readParenBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
+    if (tokens[start]?.value !== "(") return { body: "", endIdx: start };
+    let depth = 1;
+    let i = start + 1;
+    let body = "";
+    while (i < tokens.length && depth > 0) {
+        const t = tokens[i];
+        if (t.type === "NEWLINE") { i++; continue; }
+        if (t.value === "(") depth++;
+        else if (t.value === ")") {
+            depth--;
+            if (depth === 0) { i++; break; }
+        }
+        body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
+        i++;
+    }
+    return { body: body.trim(), endIdx: i };
+}
+
+// Bodies: PRESERVE newlines
 function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
     if (tokens[start]?.value !== "{") return { body: "", endIdx: start };
     let depth = 1;
@@ -447,7 +471,6 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
             depth--;
             if (depth === 0) { i++; break; }
         }
-        // PRESERVE newlines in function bodies (they're statement separators)
         if (t.type === "NEWLINE") {
             body += "\n";
             i++;
@@ -459,6 +482,7 @@ function readBracedBlock(tokens: Token[], start: number): { body: string; endIdx
     return { body: body.trim(), endIdx: i };
 }
 
+// Arrays: SKIP newlines
 function readBracketedBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
     if (tokens[start]?.value !== "[") return { body: "", endIdx: start };
     let depth = 1;
@@ -466,7 +490,7 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
-        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
+        if (t.type === "NEWLINE") { i++; continue; }
         if (t.value === "[") depth++;
         else if (t.value === "]") {
             depth--;
@@ -478,24 +502,6 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
     return { body: body.trim(), endIdx: i };
 }
 
-function readParenBlock(tokens: Token[], start: number): { body: string; endIdx: number } {
-    if (tokens[start]?.value !== "(") return { body: "", endIdx: start };
-    let depth = 1;
-    let i = start + 1;
-    let body = "";
-    while (i < tokens.length && depth > 0) {
-        const t = tokens[i];
-        if (t.type === "NEWLINE") { i++; continue; }  // ← Skip newlines
-        if (t.value === "(") depth++;
-        else if (t.value === ")") {
-            depth--;
-            if (depth === 0) { i++; break; }
-        }
-        body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
-        i++;
-    }
-    return { body: body.trim(), endIdx: i };
-}
 function rewriteInner(body: string): string {
     if (!body || body.trim() === "") return "";
     return transpile(body, "inner", true);
