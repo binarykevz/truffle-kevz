@@ -33,7 +33,7 @@
     ⟲ text.replace(/[_*`\[\]()~>#+\-=|{}.!\\]/g, "\\$&")
 }
 
-→ safeReply(H₂O, text, options) {
+export → safeReply(H₂O, text, options) {
     🛡️ {
         ⟲ ↯ H₂O.reply(text, { parse_mode: "Markdown", ...(options || {}) })
     } 🩹 (e) {
