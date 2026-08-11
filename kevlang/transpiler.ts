@@ -506,4 +506,19 @@ function readBracketedBlock(tokens: Token[], start: number): { body: string; end
     let body = "";
     while (i < tokens.length && depth > 0) {
         const t = tokens[i];
-        if (t.type === "
+        if (t.type === "NEWLINE") { i++; continue; }
+        if (t.value === "[") depth++;
+        else if (t.value === "]") {
+            depth--;
+            if (depth === 0) { i++; break; }
+        }
+        body += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
+        i++;
+    }
+    return { body: body.trim(), endIdx: i };
+}
+
+function rewriteInner(body: string): string {
+    if (!body || body.trim() === "") return "";
+    return transpile(body, "inner", true);
+}
