@@ -1,148 +1,198 @@
-# 🎵 Music Reactor — Truffle Music API
+# 🎵 Music Module - KevLang Version
 
-🧲 { InputFile } ⬅ "grammy"
+🧲 { getConfig } ⬅ "./db"
 
-⚛ API_BASE = "https://truffle-music.onrender.com"
+⚗ API_BASE ← "https://truffle-music.onrender.com"
 
+# ============================================================
+# HELPERS
+# ============================================================
 → formatDuration(seconds) {
-    ⚛ mins ← Math.floor(seconds / 60)
-    ⚛ secs ← Math.floor(seconds % 60)
-    ⟲ String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0")
+    ⚗ mins ← Math.floor(seconds / 60)
+    ⚗ secs ← Math.floor(seconds % 60)
+    ⟲ `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
 }
 
 → parseDurationToSeconds(d) {
     ⇌ typeof d === "number" { ⟲ d }
     ⇌ typeof d === "string" {
-        ⚛ parts ← d.split(":").map(Number)
+        ⚗ parts ← d.split(":").map(Number)
         ⇌ parts.length === 2 && !parts.some(isNaN) { ⟲ parts[0] * 60 + parts[1] }
         ⇌ parts.length === 3 && !parts.some(isNaN) { ⟲ parts[0] * 3600 + parts[1] * 60 + parts[2] }
-        ⚛ num ← parseInt(d)
+        ⚗ num ← parseInt(d)
         ⇌ !isNaN(num) { ⟲ num }
     }
     ⟲ 180
 }
 
 → getField(item, keys) {
-    ⇌⥀ keys.length > 0 {
-        ⚛ k ← keys.shift()
-        ⇌ item?.[k] !== ∅ && item?.[k] !== null { ⟲ item[k] }
+    ⚛ k ← ∅
+    ⇌⥀ k of keys {
+        ⇌ item?.[k] !== ∅ && item?.[k] !== ∅ { ⟲ item[k] }
     }
     ⟲ ∅
 }
 
 → toResults(data) {
     ⇌ Array.isArray(data) { ⟲ data }
-    ⇌⥀ ["results", "data", "items", "songs", "result", "videos"].length > 0 {
-        ⚛ key ← ["results", "data", "items", "songs", "result", "videos"].shift()
+    ⚗ keys ← ["results", "data", "items", "songs", "result", "videos"]
+    ⚛ key ← ∅
+    ⇌⥀ key of keys {
         ⇌ Array.isArray(data?.[key]) { ⟲ data[key] }
     }
     ⟲ []
 }
 
+→ toHDThumbnail(url) {
+    ⇌ !url { ⟲ url }
+    ⇌ url.includes("_hd") { ⟲ url }
+    ⟲ url.replace(/(\.[a-zA-Z0-9]+)$/, "_hd$1")
+}
+
 → thumbnailExists(url) {
     🛡️ {
-        ⚛ res ← ↯ fetch(url, { method: "HEAD" })
+        ⚗ res ← ↯ fetch(url, { method: "HEAD" })
         ⇌ res.ok { ⟲ true }
-        ⚛ getRes ← ↯ fetch(url, { headers: { Range: "bytes=0-1" } })
+        ⚗ getRes ← ↯ fetch(url, { headers: { Range: "bytes=0-1" } })
         ⟲ getRes.ok || getRes.status === 206
-    } 🩹 (e) {
+    } 🩹 {
         ⟲ false
     }
 }
 
-→ getHDThumbnail(videoId) {
-    🧬 candidates [
-        API_BASE + "/thumbnail?id=" + videoId + "_hd",
-        API_BASE + "/thumbnail?id=" + videoId,
-        "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
-    ]
-    ⇌⥀ candidates.length > 0 {
-        ⚛ url ← candidates.shift()
+→ getHDThumbnail(item, videoId) {
+    ⚛ raw ← getField(item, ["thumbnail", "thumbnails", "image", "img", "cover", "thumb"])
+
+    ⇌ Array.isArray(raw) {
+        ⚛ raw ← raw[raw.length - 1]?.url || raw[0]?.url || ∅
+    } ⇌ raw && typeof raw === "object" {
+        ⚛ raw ← raw.url || ∅
+    }
+
+    ⚛ candidates ← []
+
+    ⇌ typeof raw === "string" && raw { candidates.push(toHDThumbnail(raw)) }
+    ⇌ typeof raw === "string" && raw { candidates.push(raw) }
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/maxresdefault_hd.jpg`)
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/hqdefault_hd.jpg`)
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/sddefault_hd.jpg`)
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`)
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/sddefault.jpg`)
+    candidates.push(`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`)
+
+    ⚛ url ← ∅
+    ⇌⥀ url of candidates {
         ⇌ ↯ thumbnailExists(url) {
-            🔬 "[Music] 🖼️ Thumbnail: " + url
+            🔬 `[Music] 🖼️ HD thumbnail: ${url.split("/").pop()}`
             ⟲ url
         }
     }
-    ⟲ "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
+
+    ⟲ `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
 }
 
-export → searchAndPlay(query, userId) {
-    🔬 "[Music] Searching: " + query
-    ⚛ searchUrl ← API_BASE + "/search?q=" + encodeURIComponent(query)
-    ⚛ res ← ↯ fetch(searchUrl)
-    ⇌ !res.ok { ⟲ ∅ }
-
-    ⚛ data ← ↯ res.json()
-    ⚛ results ← toResults(data)
-    ⇌ results.length === 0 { ⟲ ∅ }
-
-    ⚛ item ← results[0]
-    ⚛ videoId ← String(getField(item, ["video_id", "videoId", "id"]) || "")
-    ⇌ !videoId { ⟲ ∅ }
-
-    ⚛ title ← String(getField(item, ["title", "name"]) || "Unknown")
-    ⚛ artist ← String(getField(item, ["artist", "author", "channel"]) || "Unknown Artist")
-    ⚛ description ← String(getField(item, ["description", "desc"]) || "")
-    ⚛ durationRaw ← getField(item, ["duration", "length"])
-    ⚛ durationSec ← parseDurationToSeconds(durationRaw)
-    ⚛ duration ← (typeof durationRaw === "string" && durationRaw.includes(":")) ? durationRaw : formatDuration(durationSec)
-    ⚛ thumbnail ← ↯ getHDThumbnail(videoId)
-
-    🔬 "[Music] ✓ Found: " + title + " (" + videoId + ")"
-
-    ⚛ dlUrl ← API_BASE + "/dl?id=" + encodeURIComponent(videoId)
-    ⚛ audioPath ← "/tmp/music_" + videoId + "_" + Date.now() + ".mp3"
-    ⚛ downloadSuccess ← false
-
+export → searchAndPlay(query, _userId) {
     🛡️ {
-        ⚛ dlRes ← ↯ fetch(dlUrl)
-        ⇌ dlRes.ok {
-            ⚛ contentType ← dlRes.headers.get("content-type") || ""
-            ⇌ contentType.includes("application/json") {
-                ⚛ dlData ← ↯ dlRes.json()
-                ⚛ fileUrl ← getField(dlData, ["url", "download_url", "link", "audio", "file"])
-                ⇌ fileUrl {
-                    ⚛ fileRes ← ↯ fetch(fileUrl)
-                    ⇌ fileRes.ok {
-                        ↯ Bun.write(audioPath, ↯ fileRes.arrayBuffer())
-                        downloadSuccess = Bun.file(audioPath).size > 10000
+        ⚗ searchUrl ← `${API_BASE}/search?q=${encodeURIComponent(query)}`
+        🔬 `[Music] Searching: ${searchUrl}`
+
+        ⚗ res ← ↯ fetch(searchUrl)
+        ⇌ !res.ok {
+            🔬 `[Music] Search failed: HTTP ${res.status}`
+            ⟲ ∅
+        }
+
+        ⚗ data ← ↯ res.json()
+        ⚗ results ← toResults(data)
+
+        ⇌ results.length === 0 {
+            🔬 "[Music] No results"
+            ⟲ ∅
+        }
+
+        ⚗ item ← results[0]
+
+        ⚗ videoId ← String(getField(item, ["video_id", "videoId", "id", "videoID"]))
+        ⇌ !videoId {
+            🔬 "[Music] Could not extract video_id"
+            ⟲ ∅
+        }
+
+        ⚗ title ← String(getField(item, ["title", "name", "song"]) || "Unknown Title")
+        ⚗ artist ← String(getField(item, ["artist", "author", "channel"]) || "Unknown Artist")
+        ⚗ description ← String(getField(item, ["description", "desc"]) || "")
+        ⚗ durationRaw ← getField(item, ["duration", "length", "duration_text", "durationText"])
+        ⚗ durationSec ← parseDurationToSeconds(durationRaw)
+        ⚗ duration ← typeof durationRaw === "string" && durationRaw.includes(":") ? durationRaw : formatDuration(durationSec)
+        ⚗ thumbnail ← ↯ getHDThumbnail(item, videoId)
+
+        🔬 `[Music] ✓ Found: ${title} by ${artist} (${videoId})`
+
+        ⚗ audioPath ← `/tmp/music_${videoId}_${Date.now()}.mp3`
+        ⚗ dlUrl ← `${API_BASE}/dl?id=${encodeURIComponent(videoId)}`
+        🔬 `[Music] Downloading: ${dlUrl}`
+
+        ⚛ downloadSuccess ← false
+        🛡️ {
+            ⚗ dlRes ← ↯ fetch(dlUrl)
+            ⇌ dlRes.ok {
+                ⚗ contentType ← dlRes.headers.get("content-type") || ""
+
+                ⇌ contentType.includes("application/json") {
+                    ⚗ dlData ← ↯ dlRes.json()
+                    ⚗ fileUrl ← getField(dlData, ["url", "download_url", "downloadUrl", "link", "audio", "file", "src"])
+                    ⇌ fileUrl {
+                        ⚗ fileRes ← ↯ fetch(fileUrl)
+                        ⇌ fileRes.ok {
+                            ↯ Bun.write(audioPath, ↯ fileRes.arrayBuffer())
+                            ⚛ downloadSuccess ← Bun.file(audioPath).size > 10000
+                        }
                     }
+                } ⇌ {
+                    ↯ Bun.write(audioPath, ↯ dlRes.arrayBuffer())
+                    ⚛ downloadSuccess ← Bun.file(audioPath).size > 10000
                 }
+                🔬 `[Music] ✓ Downloaded: ${Bun.file(audioPath).size} bytes`
             }
-            ⇌ !contentType.includes("application/json") {
-                ↯ Bun.write(audioPath, ↯ dlRes.arrayBuffer())
-                downloadSuccess = Bun.file(audioPath).size > 10000
-            }
-            🔬 "[Music] ✓ Downloaded: " + Bun.file(audioPath).size + " bytes"
+        } 🩹 (err) {
+            🔬 "[Music] Download error:", err.message
+        }
+
+        ⟲ {
+            videoId: videoId,
+            title: title,
+            artist: artist,
+            description: description,
+            duration: duration,
+            durationSec: durationSec,
+            thumbnail: thumbnail,
+            audioPath: downloadSuccess ? audioPath : ∅
         }
     } 🩹 (err) {
-        🔬 "[Music] Download error: " + err.message
-    }
-
-    ⟲ {
-        videoId: videoId,
-        title: title,
-        artist: artist,
-        description: description,
-        duration: duration,
-        durationSec: durationSec,
-        thumbnail: thumbnail,
-        audioPath: downloadSuccess ? audioPath : ∅
+        🔬 "[Music] searchAndPlay error:", err.message
+        ⟲ ∅
     }
 }
 
 export → testCookies() {
     🛡️ {
-        ⚛ searchUrl ← API_BASE + "/search?q=" + encodeURIComponent("Never Gonna Give You Up")
-        ⚛ res ← ↯ fetch(searchUrl)
-        ⇌ !res.ok { ⟲ { valid: false, message: "API returned " + res.status } }
-        ⚛ data ← ↯ res.json()
-        ⚛ results ← toResults(data)
-        ⇌ results.length === 0 { ⟲ { valid: false, message: "No results" } }
-        ⚛ videoId ← String(getField(results[0], ["video_id", "videoId", "id"]))
-        ⚛ title ← String(getField(results[0], ["title", "name"]) || "Unknown")
-        ⚛ dlRes ← ↯ fetch(API_BASE + "/dl?id=" + encodeURIComponent(videoId))
-        ⟲ { valid: true, message: "Search ✓ (" + title + ") | Download: " + (dlRes.ok ? "✓" : "⚠") }
+        ⚗ searchUrl ← `${API_BASE}/search?q=${encodeURIComponent("Never Gonna Give You Up")}`
+        ⚗ res ← ↯ fetch(searchUrl)
+        ⇌ !res.ok { ⟲ { valid: false, message: `API returned ${res.status}` } }
+
+        ⚗ data ← ↯ res.json()
+        ⚗ results ← toResults(data)
+        ⇌ results.length === 0 { ⟲ { valid: false, message: "Search returned no results" } }
+
+        ⚗ videoId ← String(getField(results[0], ["video_id", "videoId", "id"]))
+        ⚗ title ← String(getField(results[0], ["title", "name"]) || "Unknown")
+
+        ⚗ dlRes ← ↯ fetch(`${API_BASE}/dl?id=${encodeURIComponent(videoId)}`)
+
+        ⟲ {
+            valid: true,
+            message: `Search ✓ (${title}) | Download: ${dlRes.ok ? "✓ reachable" : "⚠️ failed"}`
+        }
     } 🩹 (err) {
         ⟲ { valid: false, message: err.message }
     }
