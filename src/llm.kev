@@ -1,39 +1,51 @@
-# 🧪 LLM Reactor — DashScope client with caching
 
+# 🧪 LLM Reactor — DashScope client with caching
 🧲 { getConfig } ⬅ "./db"
 🧲 { llmCache, hashKey } ⬅ "./cache"
 
 export → callLLM(messages, tools) {
-    ⚛ apiKey ← ↯ getConfig("api_key")
-    ⚛ baseUrl ← ↯ getConfig("base_url")
-    ⚛ model ← (↯ getConfig("model")) || "qwen-max"
-
-    ⇌ !apiKey || !baseUrl { 🔥 new Error("api_key or base_url not configured") }
-
-    ⚛ cacheKey ← hashKey(model, messages, tools.map(t => t.name))
-    ⚛ cached ← llmCache.get(cacheKey)
-    ⇌ cached {
-        🔬 "[cache] LLM hit: " + cacheKey.slice(0, 8)
-        ⟲ cached
+    ⚛ apiKey ← ↯ getConfig("api_key");
+    ⚛ baseUrl ← ↯ getConfig("base_url");
+    ⚛ model ← (↯ getConfig("model")) || "qwen-max";
+    
+    ⇌ !apiKey || !baseUrl {
+        🔥 new Error("api_key or base_url not configured");
     }
-
+    
+    ⚛ cacheKey ← hashKey(model, messages, tools.map(t => t.name));
+    ⚛ cached ← llmCache.get(cacheKey);
+    
+    ⇌ cached {
+        🔬 "[cache] LLM hit: " + String(cacheKey).slice(0, 8);
+        ⟲ cached;
+    }
+    
+    🔬 "[LLM] Calling model: " + model;
+    ⚛ body ← JSON.stringify({
+        model: model,
+        messages: messages,
+        tools: tools.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
+        tool_choice: "auto",
+        stream: false
+    });
+    
     ⚛ res ← ↯ fetch(baseUrl.replace(/\/$/, "") + "/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-        body: JSON.stringify({
-            model: model,
-            messages: messages,
-            tools: tools.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
-            tool_choice: "auto",
-            stream: false
-        })
-    })
-
-    ⇌ !res.ok { 🔥 new Error("LLM Error: " + res.status) }
-    ⚛ data ← ↯ res.json()
-    ⚛ response ← data.choices[0].message
-
-    llmCache.set(cacheKey, response)
-    🔬 "[cache] LLM cached: " + cacheKey.slice(0, 8)
-    ⟲ response
+        body: body
+    });
+    
+    ⇌ !res.ok {
+        ⚛ errText ← ↯ res.text();
+        🔬 "[LLM] Error " + res.status + ": " + errText.slice(0, 200);
+        🔥 new Error("LLM Error: " + res.status);
+    }
+    
+    ⚛ data ← ↯ res.json();
+    ⚛ response ← data.choices[0].message;
+    
+    llmCache.set(cacheKey, response);
+    🔬 "[cache] LLM cached: " + String(cacheKey).slice(0, 8);
+    
+    ⟲ response;
 }
