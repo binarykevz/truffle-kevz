@@ -3,11 +3,11 @@ import { tokenize, Token } from "./lexer";
 export function transpile(source: string, filename: string = "unknown.kev", isInner: boolean = false): string {
     const tokens = tokenize(source);
     const out: string[] = [];
-    let lineBuffer = "";  // ← Accumulates pass-through tokens on same line
+    let lineBuffer = "";
     let i = 0;
 
     if (!isInner) {
-        out.push(`// ⚗ SYNTHESIZED from ${filename}`);
+        out.push("// SYNTHESIZED from " + filename);
         out.push("");
     }
 
@@ -21,14 +21,12 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
     while (i < tokens.length) {
         const t = tokens[i];
 
-        // NEWLINE: flush current line buffer
         if (t.type === "NEWLINE") {
             flushLine();
             i++;
             continue;
         }
 
-        // --- Import (Bond): 🧲 { A, B } ⬅ "path" ---
         if (t.type === "BOND") {
             flushLine();
             i++;
@@ -49,7 +47,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Atom: ⚛ ---
         if (t.type === "ATOM") {
             flushLine();
             const next = tokens[i + 1];
@@ -60,7 +57,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 const name = tokens[i].value;
                 i += 2;
                 const expr = readUntilEOL(tokens, i);
-                out.push(`let ${name} = ${expr};`);
+                out.push("let " + name + " = " + expr + ";");
                 i = skipPastEOL(tokens, i);
                 continue;
             }
@@ -73,11 +70,11 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 if (tokens[i]?.type === "MUT_ATOM") {
                     i++;
                     const expr = readUntilEOL(tokens, i);
-                    out.push(`let {${rewriteInner(block.body)}} = ${expr};`);
+                    out.push("let {" + rewriteInner(block.body) + "} = " + expr + ";");
                     i = skipPastEOL(tokens, i);
                     continue;
                 }
-                out.push(`const {${rewriteInner(block.body)}} = {};`);
+                out.push("const {" + rewriteInner(block.body) + "} = {};");
                 continue;
             }
 
@@ -89,11 +86,11 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 if (tokens[i]?.type === "MUT_ATOM") {
                     i++;
                     const expr = readUntilEOL(tokens, i);
-                    out.push(`let [${rewriteInner(block.body)}] = ${expr};`);
+                    out.push("let [" + rewriteInner(block.body) + "] = " + expr + ";");
                     i = skipPastEOL(tokens, i);
                     continue;
                 }
-                out.push(`const [${rewriteInner(block.body)}] = [];`);
+                out.push("const [" + rewriteInner(block.body) + "] = [];");
                 continue;
             }
 
@@ -102,7 +99,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 const name = tokens[i].value;
                 i += 2;
                 const expr = readUntilEOL(tokens, i);
-                out.push(`const ${name} = ${expr};`);
+                out.push("const " + name + " = " + expr + ";");
                 i = skipPastEOL(tokens, i);
                 continue;
             }
@@ -111,7 +108,6 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             continue;
         }
 
-        // --- Solution: ⚗ ---
         if (t.type === "SOLUTION") {
             flushLine();
             i++;
@@ -121,7 +117,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             if (tokens[i]?.type === "MUT_ATOM") {
                 i++;
                 const expr = readUntilEOL(tokens, i);
-                out.push(`let ${name} = ${expr};`);
+                out.push("let " + name + " = " + expr + ";");
                 i = skipPastEOL(tokens, i);
                 continue;
             }
@@ -129,7 +125,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             if (tokens[i]?.type === "OPERATOR" && tokens[i].value === "=") {
                 i++;
                 const expr = readUntilEOL(tokens, i);
-                out.push(`const ${name} = ${expr};`);
+                out.push("const " + name + " = " + expr + ";");
                 i = skipPastEOL(tokens, i);
                 continue;
             }
@@ -140,11 +136,10 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 body = block.body;
                 i = block.endIdx;
             }
-            out.push(`const ${name} = {${rewriteInner(body)}};`);
+            out.push("const " + name + " = {" + rewriteInner(body) + "};");
             continue;
         }
 
-        // --- DNA: 🧬 ---
         if (t.type === "DNA") {
             flushLine();
             i++;
@@ -152,15 +147,14 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
             if (tokens[i]?.type === "IDENT") i++;
             if (tokens[i]?.value === "[") {
                 const block = readBracketedBlock(tokens, i);
-                out.push(`const ${name} = [${rewriteInner(block.body)}];`);
+                out.push("const " + name + " = [" + rewriteInner(block.body) + "];");
                 i = block.endIdx;
             } else {
-                out.push(`const ${name} = [];`);
+                out.push("const " + name + " = [];");
             }
             continue;
         }
 
-        // --- Reaction: → ---
         if (t.type === "REACTION") {
             const next = tokens[i + 1];
 
@@ -189,19 +183,17 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     i = block.endIdx;
                 }
 
-                out.push(`async function ${name}(${params}) {`);
+                out.push("async function " + name + "(" + params + ") {");
                 const inner = rewriteInner(body);
                 if (inner) out.push(inner);
-                out.push(`}`);
+                out.push("}");
                 continue;
             }
 
-            // Skip stray →
             i++;
             continue;
         }
 
-        // --- Cycling: ⇌⥀ ---
         if (t.type === "CYCLING") {
             flushLine();
             i++;
@@ -212,7 +204,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = p.endIdx;
             } else {
                 while (i < tokens.length && tokens[i].value !== "{" && tokens[i].type !== "NEWLINE") {
-                    cond += emitToken(tokens[i]) + " ";
+                    cond += emitToken(tokens[i]) + (needsSpace(tokens[i], tokens[i + 1]) ? " " : "");
                     i++;
                 }
             }
@@ -222,14 +214,13 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 body = block.body;
                 i = block.endIdx;
             }
-            out.push(`while (${cond.trim()}) {`);
+            out.push("while (" + cond.trim() + ") {");
             const inner = rewriteInner(body);
             if (inner) out.push(inner);
-            out.push(`}`);
+            out.push("}");
             continue;
         }
 
-        // --- Equilibrium: ⇌ ---
         if (t.type === "EQUILIBRIUM") {
             flushLine();
             i++;
@@ -240,7 +231,7 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 i = p.endIdx;
             } else {
                 while (i < tokens.length && tokens[i].value !== "{" && tokens[i].type !== "NEWLINE") {
-                    cond += emitToken(tokens[i]) + " ";
+                    cond += emitToken(tokens[i]) + (needsSpace(tokens[i], tokens[i + 1]) ? " " : "");
                     i++;
                 }
             }
@@ -250,35 +241,40 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 body = block.body;
                 i = block.endIdx;
             }
-            out.push(`if (${cond.trim()}) {`);
+            out.push("if (" + cond.trim() + ") {");
             const inner = rewriteInner(body);
             if (inner) out.push(inner);
-            out.push(`}`);
+            out.push("}");
             continue;
         }
 
-        // --- Microscope: 🔬 ---
         if (t.type === "MICROSCOPE") {
             flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
-            out.push(`console.log(${expr});`);
+            out.push("console.log(" + expr + ");");
             i = skipPastEOL(tokens, i);
             continue;
         }
 
-        // --- Energy: ⚡ ---
         if (t.type === "ENERGY") {
             flushLine();
             i++;
             let event = "";
-            while (i < tokens.length && tokens[i].type !== "REACTION" && tokens[i].type !== "NEWLINE" && tokens[i].type !== "EOF") {
-                event += tokens[i].value;
+            while (i < tokens.length) {
+                const tk = tokens[i];
+                if (tk.type === "NEWLINE" || tk.type === "EOF") break;
+                if (tk.type === "REACTION") break;
+                if (tk.value === "{") break;
+                if (tk.value === "=" && tokens[i+1] && tokens[i+1].value === ">") break;
+                if (tk.type === "IDENT" && (tk.value === "async" || tk.value === "function")) break;
+                event += tk.value;
                 i++;
             }
-            if (tokens[i]?.type === "REACTION") i++;
+            if (tokens[i] && tokens[i].type === "REACTION") i++;
+            if (tokens[i] && tokens[i].value === "=" && tokens[i+1] && tokens[i+1].value === ">") { i += 2; }
             while (i < tokens.length && tokens[i].type === "NEWLINE") i++;
-
+            
             let handler = "";
             let braceDepth = 0;
             let started = false;
@@ -294,6 +290,9 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     }
                 }
                 if (t2.type === "NEWLINE") {
+                    if (!started && braceDepth === 0) {
+                        break;
+                    }
                     handler += "\n";
                     i++;
                     continue;
@@ -301,39 +300,34 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                 handler += emitToken(t2) + (needsSpace(t2, tokens[i + 1]) ? " " : "");
                 i++;
             }
-
-            out.push(`bot.command(${JSON.stringify(event.trim())}, ${handler.trim()});`);
+            out.push("bot.command(" + JSON.stringify(event.trim()) + ", " + handler.trim() + ");");
             continue;
         }
 
-        // --- Activate: ↯ ---
         if (t.type === "ACTIVATE") {
             lineBuffer += "await ";
             i++;
             continue;
         }
 
-        // --- Catalyst: ⟲ ---
         if (t.type === "CATALYST") {
             flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
-            out.push(`return ${expr};`);
+            out.push("return " + expr + ";");
             i = skipPastEOL(tokens, i);
             continue;
         }
 
-        // --- Combustion: 🔥 ---
         if (t.type === "COMBUSTION") {
             flushLine();
             i++;
             const expr = readUntilEOL(tokens, i);
-            out.push(`throw ${expr};`);
+            out.push("throw " + expr + ";");
             i = skipPastEOL(tokens, i);
             continue;
         }
 
-        // --- Shield/Bandage: 🛡️ / 🩹 ---
         if (t.type === "SHIELD") {
             flushLine();
             i++;
@@ -359,64 +353,52 @@ export function transpile(source: string, filename: string = "unknown.kev", isIn
                     i = block.endIdx;
                 }
             }
-            out.push(`try {`);
+            out.push("try {");
             const tryInner = rewriteInner(tryBody);
             if (tryInner) out.push(tryInner);
-            out.push(`} catch (${catchVar}) {`);
+            out.push("} catch (" + catchVar + ") {");
             const catchInner = rewriteInner(catchBody);
             if (catchInner) out.push(catchInner);
-            out.push(`}`);
+            out.push("}");
             continue;
         }
 
-        // --- Void: ∅ ---
         if (t.type === "VOID") {
             lineBuffer += "null ";
             i++;
             continue;
         }
 
-        // --- Solvent: H₂O ---
         if (t.type === "SOLVENT") {
             lineBuffer += "ctx ";
             i++;
             continue;
         }
 
-        // --- export ---
         if (t.type === "IDENT" && t.value === "export") {
             lineBuffer += "export ";
             i++;
             continue;
         }
 
-        // --- Safety net: stray ← ---
         if (t.type === "MUT_ATOM") {
             lineBuffer += "= ";
             i++;
             continue;
         }
 
-        // --- Safety net: stray → (skip) ---
         if (t.type === "REACTION") {
             i++;
             continue;
         }
 
-        // --- Pass-through: accumulate on same line ---
         lineBuffer += emitToken(t) + (needsSpace(t, tokens[i + 1]) ? " " : "");
         i++;
     }
 
-    // Flush any remaining content
     flushLine();
-
     return out.filter(line => line.trim() !== "").join("\n");
 }
-
-// ============================================================
-// HELPERS
-// ============================================================
 
 function emitToken(t: Token): string {
     switch (t.type) {
@@ -435,8 +417,14 @@ function emitToken(t: Token): string {
 function needsSpace(a: Token, b: Token | undefined): boolean {
     if (!b) return false;
     if (a.type === "NEWLINE" || b.type === "NEWLINE") return false;
-    if (a.type === "PUNCT" && /[(){}\[\],.;:]/.test(a.value)) return false;
-    if (b.type === "PUNCT" && /[(){}\[\],.;:]/.test(b.value)) return false;
+    if (a.value === "." || b.value === ".") return false;
+    if (a.value === "?" || b.value === "?") return false;
+    if (a.value === "!" || b.value === "!") return false;
+    const noSpace = "(){}[],.;:";
+    if (a.type === "PUNCT" && noSpace.includes(a.value)) return false;
+    if (b.type === "PUNCT" && noSpace.includes(b.value)) return false;
+    if (a.type === "OPERATOR" && noSpace.includes(a.value)) return false;
+    if (b.type === "OPERATOR" && noSpace.includes(b.value)) return false;
     return true;
 }
 
