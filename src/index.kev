@@ -83,95 +83,120 @@ export → safeReply(H₂O, text, options) {
         }
         ↯ next()
     })
-
-    # ⚡ /adduser
-    ⚡ /adduser → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        let targetId = null, targetUsername = undefined;
-        const repliedTo = H₂O.message?.reply_to_message;
-        if (repliedTo?.from) { targetId = repliedTo.from.id; targetUsername = repliedTo.from.username; }
-        else if (H₂O.match?.trim()) { const p = Number(H₂O.match.trim()); if (!isNaN(p) && p > 0) targetId = p; }
-        if (!targetId) return H₂O.reply("Usage: reply with /adduser or /adduser <id>");
-        const added = await addAllowedUser(targetId, targetUsername, H₂O.from.id);
-        return H₂O.reply(added ? `✅ Added ${targetUsername || targetId}` : `ℹ️ Already allowed`);
+    # /adduser
+    → handleAddUser(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ targetId ← null
+        ⚛ targetUsername ← undefined
+        ⚛ repliedTo ← H₂O.message?.reply_to_message
+        ⇌ repliedTo?.from {
+            targetId = repliedTo.from.id
+            targetUsername = repliedTo.from.username
+        }
+        ⇌ !targetId && H₂O.match?.trim() {
+            ⚛ p ← Number(H₂O.match.trim())
+            ⇌ !isNaN(p) && p > 0 { targetId = p }
+        }
+        ⇌ !targetId { ⟲ H₂O.reply("Usage: reply with /adduser or /adduser <id>") }
+        ⚛ added ← ↯ addAllowedUser(targetId, targetUsername, H₂O.from.id)
+        ⟲ H₂O.reply(added ? `✅ Added ${targetUsername || targetId}` : `ℹ️ Already allowed`)
     }
+    ⚡ /adduser → handleAddUser
 
-    # ⚡ /addgroup
+    # /addgroup
     → handleAddGroup(H₂O) {
-    ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
-    ⚛ chat ← H₂O.chat
-    ⇌ !chat || (chat.type !== 'group' && chat.type !== 'supergroup') { ⟲ H₂O.reply("⚠️ Use inside a group.") }
-    ⚛ added ← ↯ addAllowedGroup(chat.id, chat.title, chat.username, H₂O.from.id)
-    ⟲ H₂O.reply(added ? `✅ Group approved: ${chat.title || chat.id}` : "ℹ️ Already allowed")
-}
-⚡ /addgroup → handleAddGroup
-
-    # ⚡ /listusers
-    ⚡ /listusers → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const { users, groups } = await listAllowedUsers();
-        let msg = '';
-        if (groups.length > 0) { msg += `**Groups (${groups.length}):**\\n`; for (const g of groups) msg += `• \`${g.chat_id}\` ${g.title || ''}\\n`; msg += '\\n'; }
-        if (users.length > 0) { msg += `**Users (${users.length}):**\\n`; for (const u of users) msg += `• \`${u.user_id}\` ${u.username || ''}\\n`; }
-        return safeReply(H₂O, msg || "No users yet.");
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ chat ← H₂O.chat
+        ⇌ !chat || (chat.type !== 'group' && chat.type !== 'supergroup') { ⟲ H₂O.reply("⚠️ Use inside a group.") }
+        ⚛ added ← ↯ addAllowedGroup(chat.id, chat.title, chat.username, H₂O.from.id)
+        ⟲ H₂O.reply(added ? `✅ Group approved: ${chat.title || chat.id}` : "ℹ️ Already allowed")
     }
+    ⚡ /addgroup → handleAddGroup
 
-    # ⚡ /setconfig
-    ⚡ /setconfig → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const parts = (H₂O.match || '').split(/\s+/);
-        if (parts.length < 2) return H₂O.reply("Usage: /setconfig <key> <value>");
-        const [key, ...rest] = parts;
-        await setConfig(key, rest.join(' '));
-        return H₂O.reply(`✅ Set \`${key}\``);
+    # /listusers
+    → handleListUsers(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ data ← ↯ listAllowedUsers()
+        ⚛ users ← data.users
+        ⚛ groups ← data.groups
+        ⚛ msg ← ''
+        ⇌ groups.length > 0 {
+            msg += `**Groups (${groups.length}):**\n`
+            for (const g of groups) { msg += `• \`${g.chat_id}\` ${g.title || ''}\n` }
+            msg += '\n'
+        }
+        ⇌ users.length > 0 {
+            msg += `**Users (${users.length}):**\n`
+            for (const u of users) { msg += `• \`${u.user_id}\` ${u.username || ''}\n` }
+        }
+        ⟲ safeReply(H₂O, msg || "No users yet.")
     }
+    ⚡ /listusers → handleListUsers
 
-    # ⚡ /status
-    ⚡ /status → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const config = await getAllConfig();
-        const owner = await getOwner();
-        const cmds = await listCommands();
-        return safeReply(H₂O, `**Status**\\n• Owner: \`${owner || 'not set'}\`\\n• Commands: ${cmds.length}\\n• API Key: ${config.api_key ? '✅' : '❌'}\\n• OpenClaw: ${config.openclaw_token ? '✅' : '❌'}`);
+    # /setconfig
+    → handleSetConfig(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ parts ← (H₂O.match || '').split(/\s+/)
+        ⇌ parts.length < 2 { ⟲ H₂O.reply("Usage: /setconfig <key> <value>") }
+        ⚛ key ← parts[0]
+        ⚛ rest ← parts.slice(1)
+        ↯ setConfig(key, rest.join(' '))
+        ⟲ H₂O.reply(`✅ Set \`${key}\``)
     }
+    ⚡ /setconfig → handleSetConfig
 
-    # ⚡ /cachestats
-    ⚡ /cachestats → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const s = getCacheStats();
-        return safeReply(H₂O, `**Cache**\\n• LLM: ${s.llm.size}/${s.llm.maxSize}\\n• Commands: ${s.commands.size}\\n• Config: ${s.config.size}`);
+    # /status
+    → handleStatus(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ config ← ↯ getAllConfig()
+        ⚛ owner ← ↯ getOwner()
+        ⚛ cmds ← ↯ listCommands()
+        ⟲ safeReply(H₂O, `**Status**\n• Owner: \`${owner || 'not set'}\`\n• Commands: ${cmds.length}\n• API Key: ${config.api_key ? "✅" : "❌"}\n• OpenClaw: ${config.openclaw_token ? "✅" : "❌"}`)
     }
+    ⚡ /status → handleStatus
 
-    # ⚡ /clearcache
-    ⚡ /clearcache → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        clearAllCaches();
-        return H₂O.reply("🧹 Caches cleared.");
+    # /cachestats
+    → handleCacheStats(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ s ← getCacheStats()
+        ⟲ safeReply(H₂O, `**Cache**\n• LLM: ${s.llm.size}/${s.llm.maxSize}\n• Commands: ${s.commands.size}\n• Config: ${s.config.size}`)
     }
+    ⚡ /cachestats → handleCacheStats
 
-    # ⚡ /testcookies
-    ⚡ /testcookies → async (H₂O) => {
-        if (!(await isOwner(H₂O.from.id))) return H₂O.reply("⛔ Owner only.");
-        const { testCookies } = await import('./music.js');
-        await H₂O.reply("🔍 Testing...");
-        const r = await testCookies();
-        return H₂O.reply(r.valid ? `✅ ${r.message}` : `❌ ${r.message}`);
+    # /clearcache
+    → handleClearCache(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        clearAllCaches()
+        ⟲ H₂O.reply("🧹 Caches cleared.")
     }
+    ⚡ /clearcache → handleClearCache
 
-    # ⚡ /cancel
-    ⚡ /cancel → async (H₂O) => {
-        pendingFeatures.delete(H₂O.from.id);
-        pendingCookies.delete(H₂O.from.id);
-        return H₂O.reply("❌ Cancelled.");
+    # /testcookies
+    → handleTestCookies(H₂O) {
+        ⇌ !(↯ isOwner(H₂O.from.id)) { ⟲ H₂O.reply("⛔ Owner only.") }
+        ⚛ music ← ↯ import('./music.js')
+        ↯ H₂O.reply("🔍 Testing...")
+        ⚛ r ← ↯ music.testCookies()
+        ⟲ H₂O.reply(r.valid ? `✅ ${r.message}` : `❌ ${r.message}`)
     }
+    ⚡ /testcookies → handleTestCookies
 
-    # ⚡ /reset
-    ⚡ /reset → async (H₂O) => {
-        const { resetAgent } = await import('./agent.js');
-        await resetAgent(H₂O.from.id);
-        return H₂O.reply("🧹 Memory cleared.");
+    # /cancel
+    → handleCancel(H₂O) {
+        pendingFeatures.delete(H₂O.from.id)
+        pendingCookies.delete(H₂O.from.id)
+        ⟲ H₂O.reply("❌ Cancelled.")
     }
+    ⚡ /cancel → handleCancel
 
+    # /reset
+    → handleReset(H₂O) {
+        ⚛ agent ← ↯ import('./agent.js')
+        ↯ agent.resetAgent(H₂O.from.id)
+        ⟲ H₂O.reply("🧹 Memory cleared.")
+    }
+    ⚡ /reset → handleReset
+   
     # 📄 Document handler
     bot.on("message:document", async (H₂O) => {
         const doc = H₂O.message.document;
